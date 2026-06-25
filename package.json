@@ -1,0 +1,14 @@
+{
+  "name": "post-group",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local web app: open a browser for manual Facebook login, list joined groups, and auto-post content + images to selected groups using Playwright.",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "multer": "^2.0.0",
+    "playwright": "^1.48.0"
+  }
+}
