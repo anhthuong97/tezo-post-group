@@ -1,3 +1,30 @@
+// ─── Auth check ───────────────────────────────────────────────────────────────
+(async () => {
+  try {
+    const res = await fetch('/api/auth/me');
+    if (!res.ok) { window.location.href = '/login.html'; return; }
+    const data = await res.json();
+    if (!data.loggedIn) { window.location.href = '/login.html'; return; }
+    const usernameEl = document.getElementById('appUsername');
+    if (usernameEl) usernameEl.textContent = data.username;
+  } catch {
+    window.location.href = '/login.html';
+  }
+})();
+
+// Intercept any 401 from API calls
+const _origFetch = window.fetch.bind(window);
+window.fetch = async (...args) => {
+  const res = await _origFetch(...args);
+  if (res.status === 401) { window.location.href = '/login.html'; }
+  return res;
+};
+
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+  await fetch('/api/auth/logout', { method: 'POST' });
+  window.location.href = '/login.html';
+});
+
 const helpBtn = document.getElementById('helpBtn');
 const helpModalOverlay = document.getElementById('helpModalOverlay');
 const closeHelpModalBtn = document.getElementById('closeHelpModalBtn');
@@ -263,12 +290,18 @@ function getCachedGroups() {
   }
 }
 
+function unlockSteps() {
+  document.getElementById('group-select-section').classList.remove('step-locked');
+  document.getElementById('post-compose-section').classList.remove('step-locked');
+}
+
 function applyGroupsToUI(groups) {
   renderGroups(groups);
   loginStatus.textContent = `Tìm thấy ${groups.length} group.`;
   loginBody.hidden = true;
   toggleLoginBtn.textContent = 'Hiện';
   loginDoneBadge.hidden = false;
+  unlockSteps();
   // Fire-and-forget: don't block the group list on this, just keep the
   // identity dropdown current whenever groups get (re)loaded.
   loadIdentities();

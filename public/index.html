@@ -20,6 +20,8 @@
         title="Gemini API Key — dùng cho chức năng AI gợi ý nội dung. Bấm để nhập/đổi key, key được lưu trên máy bạn."
       ></button>
       <button type="button" id="helpBtn" class="help-btn">Hướng dẫn sử dụng</button>
+      <span id="appUsername" class="app-username"></span>
+      <button type="button" id="logoutBtn" class="logout-btn">Đăng xuất</button>
       <span class="app-credit">Developed by ThuongNA5 © 2026</span>
     </div>
   </header>
@@ -51,7 +53,7 @@
         </div>
       </section>
 
-      <section id="group-select-section" class="card">
+      <section id="group-select-section" class="card step-locked">
         <div id="groupSectionLock" class="section-lock-overlay" hidden>
           <div class="section-lock-spinner"></div>
           <div id="groupSectionLockMessage" class="section-lock-message">Đang tải...</div>
@@ -75,7 +77,7 @@
 
     <div id="sidebarResizer" class="resizer" title="Kéo để đổi độ rộng"></div>
 
-    <main id="post-compose-section" class="app-main card">
+    <main id="post-compose-section" class="app-main card step-locked">
       <div class="step-header">
         <span class="step-badge step-badge-3">3</span>
         <h2>Soạn bài đăng</h2>
