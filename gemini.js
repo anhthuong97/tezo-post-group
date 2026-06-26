@@ -105,9 +105,8 @@ ${content}
 Hãy viết lại nội dung trên thành 5 phiên bản khác nhau, mỗi phiên bản diễn đạt khác nhau (từ ngữ, cách hành văn, có thể thêm emoji phù hợp) nhưng PHẢI giữ nguyên ý chính, thông tin, số liệu, liên hệ, hashtag quan trọng của bài gốc. Không thêm thông tin mà bài gốc không có. Trả lời CHỈ bằng một JSON array gồm đúng 5 chuỗi văn bản (string), không thêm giải thích, không thêm markdown.`;
 }
 
-async function getAiSuggestions(content, apiKey) {
+async function getAiSuggestionsGemini(content, apiKey) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`;
-
   const res = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -116,29 +115,60 @@ async function getAiSuggestions(content, apiKey) {
       generationConfig: { responseMimeType: 'application/json', temperature: 0.9 },
     }),
   });
-
   const data = await res.json();
-  if (!res.ok) {
-    throw new Error(data?.error?.message || `Gemini API lỗi (HTTP ${res.status}).`);
-  }
-
+  if (!res.ok) throw new Error(data?.error?.message || `Gemini lỗi HTTP ${res.status}.`);
   const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) {
-    throw new Error('Gemini không trả về nội dung (có thể do bộ lọc an toàn chặn nội dung này).');
-  }
-
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch {
-    throw new Error('Không đọc được kết quả AI trả về (không phải JSON hợp lệ).');
-  }
-
-  if (!Array.isArray(parsed) || parsed.length === 0) {
-    throw new Error('Kết quả AI trả về không đúng định dạng mong đợi.');
-  }
-
+  if (!text) throw new Error('Gemini không trả về nội dung.');
+  const parsed = JSON.parse(text);
+  if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('Gemini trả về định dạng không hợp lệ.');
   return parsed.map((s) => String(s)).slice(0, 5);
+}
+
+async function getAiSuggestionsOpenAI(content, apiKey) {
+  const res = await fetch('https://api.openai.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model: 'gpt-4o-mini',
+      messages: [{ role: 'user', content: buildPrompt(content) }],
+      temperature: 0.9,
+      response_format: { type: 'json_object' },
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data?.error?.message || `OpenAI lỗi HTTP ${res.status}.`);
+  const text = data?.choices?.[0]?.message?.content;
+  if (!text) throw new Error('OpenAI không trả về nội dung.');
+  // GPT trả về JSON object hoặc array
+  const raw = JSON.parse(text);
+  const parsed = Array.isArray(raw) ? raw : (raw.suggestions || raw.versions || Object.values(raw));
+  if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('OpenAI trả về định dạng không hợp lệ.');
+  return parsed.map((s) => String(s)).slice(0, 5);
+}
+
+// Thử Gemini trước, nếu lỗi tự động fallback sang OpenAI
+async function getAiSuggestions(content, { geminiKey, openaiKey, fallbackKey } = {}) {
+  if (!geminiKey && !openaiKey) throw new Error('Chưa cấu hình API Key (Gemini hoặc ChatGPT).');
+
+  // OpenAI priority: openaiKey first, fallback to gemini (passed as fallbackKey)
+  if (!geminiKey && openaiKey) {
+    try {
+      return await getAiSuggestionsOpenAI(content, openaiKey);
+    } catch (err) {
+      if (!fallbackKey) throw new Error(`ChatGPT lỗi: ${err.message}`);
+      console.log(`ChatGPT lỗi (${err.message}), chuyển sang Gemini...`);
+      return await getAiSuggestionsGemini(content, fallbackKey);
+    }
+  }
+
+  // Gemini priority (default)
+  try {
+    return await getAiSuggestionsGemini(content, geminiKey);
+  } catch (err) {
+    if (!openaiKey) throw new Error(`Gemini lỗi: ${err.message}`);
+    console.log(`Gemini lỗi (${err.message}), chuyển sang OpenAI...`);
+  }
+  return await getAiSuggestionsOpenAI(content, openaiKey);
 }
 
 module.exports = { getAiSuggestions, buildProductPost };

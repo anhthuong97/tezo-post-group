@@ -1,7 +1,7 @@
-// ─── Auth check ───────────────────────────────────────────────────────────────
+﻿// ─── Auth check ───────────────────────────────────────────────────────────────
 (async () => {
   try {
-    const res = await fetch('/api/auth/me');
+    const res = await fetch('/api/post-group/auth/me');
     if (!res.ok) { window.location.href = '/login.html'; return; }
     const data = await res.json();
     if (!data.loggedIn) { window.location.href = '/login.html'; return; }
@@ -21,7 +21,7 @@ window.fetch = async (...args) => {
 };
 
 document.getElementById('logoutBtn').addEventListener('click', async () => {
-  await fetch('/api/auth/logout', { method: 'POST' });
+  await fetch('/api/post-group/auth/logout', { method: 'POST' });
   window.location.href = '/login.html';
 });
 
@@ -43,18 +43,14 @@ closeHelpModalBtn.addEventListener('click', () => {
 // that *a* key is saved — not the real value. Clicking into the field
 // clears that preview and switches to a real password input for entering
 // a new key, so the partial mask itself can never be mistaken for new input.
-const GEMINI_KEY_STORAGE = 'post-group:geminiApiKey';
 const geminiApiKeyBtn = document.getElementById('geminiApiKeyBtn');
 const geminiApiKeyModalOverlay = document.getElementById('geminiApiKeyModalOverlay');
 const geminiApiKeyModalInput = document.getElementById('geminiApiKeyModalInput');
+const openaiApiKeyModalInput = document.getElementById('openaiApiKeyModalInput');
 const closeGeminiKeyModalBtn = document.getElementById('closeGeminiKeyModalBtn');
 const saveGeminiKeyBtn = document.getElementById('saveGeminiKeyBtn');
 
 geminiApiKeyBtn.textContent = '🔑 API Key';
-
-function getGeminiKey() {
-  return localStorage.getItem(GEMINI_KEY_STORAGE) || '';
-}
 
 function maskGeminiKeyPreview(key) {
   if (!key || key.length <= 7) return '*'.repeat(key.length || 8);
@@ -63,13 +59,30 @@ function maskGeminiKeyPreview(key) {
 
 let geminiKeyFieldDirty = false;
 
-geminiApiKeyBtn.addEventListener('click', () => {
-  const key = getGeminiKey();
+const aiPriorityGemini = document.getElementById('aiPriorityGemini');
+const aiPriorityOpenai = document.getElementById('aiPriorityOpenai');
+
+geminiApiKeyBtn.addEventListener('click', async () => {
   geminiKeyFieldDirty = false;
-  geminiApiKeyModalInput.type = 'text';
-  geminiApiKeyModalInput.value = key ? maskGeminiKeyPreview(key) : '';
-  geminiApiKeyModalInput.placeholder = key ? '' : 'Dán Gemini API Key vào đây...';
+  geminiApiKeyModalInput.type = 'password';
+  openaiApiKeyModalInput.type = 'password';
+  geminiApiKeyModalInput.value = '';
+  openaiApiKeyModalInput.value = '';
+  geminiApiKeyModalInput.placeholder = 'Đang tải...';
+  openaiApiKeyModalInput.placeholder = 'Đang tải...';
   geminiApiKeyModalOverlay.hidden = false;
+  try {
+    const res = await fetch('/api/post-group/settings/api-keys');
+    const data = await res.json();
+    geminiApiKeyModalInput.placeholder = data.gemini?.hasKey ? data.gemini.masked : 'Dán Gemini API Key...';
+    openaiApiKeyModalInput.placeholder = data.openai?.hasKey ? data.openai.masked : 'Dán OpenAI API Key...';
+    const priority = data.priority || 'gemini';
+    aiPriorityGemini.checked = priority === 'gemini';
+    aiPriorityOpenai.checked = priority === 'openai';
+  } catch {
+    geminiApiKeyModalInput.placeholder = 'Không tải được.';
+    openaiApiKeyModalInput.placeholder = 'Không tải được.';
+  }
 });
 
 geminiApiKeyModalInput.addEventListener('focus', () => {
@@ -86,13 +99,15 @@ closeGeminiKeyModalBtn.addEventListener('click', () => {
   geminiApiKeyModalOverlay.hidden = true;
 });
 
-saveGeminiKeyBtn.addEventListener('click', () => {
-  // Only overwrite the saved key if the user actually typed something —
-  // the partial-mask preview shown on open must never count as "new input".
-  if (geminiKeyFieldDirty) {
-    const typed = geminiApiKeyModalInput.value.trim();
-    if (typed) localStorage.setItem(GEMINI_KEY_STORAGE, typed);
-  }
+saveGeminiKeyBtn.addEventListener('click', async () => {
+  const saves = [];
+  const geminiVal = geminiApiKeyModalInput.value.trim();
+  const openaiVal = openaiApiKeyModalInput.value.trim();
+  const priority = aiPriorityGemini.checked ? 'gemini' : 'openai';
+  if (geminiVal) saves.push(fetch('/api/post-group/settings/api-keys', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider: 'gemini', apiKey: geminiVal }) }));
+  if (openaiVal) saves.push(fetch('/api/post-group/settings/api-keys', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider: 'openai', apiKey: openaiVal }) }));
+  saves.push(fetch('/api/post-group/settings/ai-priority', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ priority }) }));
+  await Promise.all(saves);
   geminiApiKeyModalOverlay.hidden = true;
 });
 
@@ -101,7 +116,20 @@ geminiApiKeyModalInput.addEventListener('keydown', (e) => {
 });
 
 const openLoginBtn = document.getElementById('openLoginBtn');
-const confirmLoginBtn = document.getElementById('confirmLoginBtn');
+function setLoginBtnMode(mode) {
+  openLoginBtn.classList.remove('confirm-mode', 'logout-mode');
+  if (mode === 'confirm') {
+    openLoginBtn.textContent = 'Tôi đã đăng nhập xong';
+    openLoginBtn.classList.add('confirm-mode');
+  } else if (mode === 'logout') {
+    openLoginBtn.textContent = 'Đăng xuất Facebook';
+    openLoginBtn.classList.add('logout-mode');
+  } else {
+    openLoginBtn.textContent = 'Mở Facebook để đăng nhập';
+  }
+  openLoginBtn._mode = mode || 'open';
+}
+function setLoginBtnConfirmMode(on) { setLoginBtnMode(on ? 'confirm' : 'open'); }
 const loginStatus = document.getElementById('loginStatus');
 const loginBody = document.getElementById('loginBody');
 const toggleLoginBtn = document.getElementById('toggleLoginBtn');
@@ -234,7 +262,7 @@ let pollInterval;
 function startLogPolling() {
   if (pollInterval) return;
   pollInterval = setInterval(async () => {
-    const res = await fetch('/api/log');
+    const res = await fetch('/api/post-group/log');
     const data = await res.json();
     logBox.textContent = data.log.join('\n');
     logBox.scrollTop = logBox.scrollHeight;
@@ -242,13 +270,39 @@ function startLogPolling() {
 }
 
 openLoginBtn.addEventListener('click', async () => {
+  if (openLoginBtn._mode === 'logout') {
+    if (!confirm('Đăng xuất Facebook? Bạn sẽ cần đăng nhập lại lần sau.')) return;
+    await fetch('/api/post-group/logout-facebook', { method: 'POST' });
+    expandLoginSection();
+    loginStatus.textContent = '';
+    identitySection.hidden = true;
+    document.getElementById('group-select-section').classList.add('step-locked');
+    document.getElementById('post-compose-section').classList.add('step-locked');
+    document.getElementById('groupList').innerHTML = '';
+    localStorage.removeItem('post-group:groups');
+    return;
+  }
+
+  if (openLoginBtn._mode === 'confirm') {
+    stopLoginPolling();
+    openLoginBtn.disabled = true;
+    collapseLoginSection();
+    const ok = await confirmLoginAndLoadGroups();
+    if (!ok) {
+      openLoginBtn.disabled = false;
+    } else {
+      openLoginBtn.disabled = false;
+    }
+    return;
+  }
+
   openLoginBtn.disabled = true;
   loginStatus.textContent = 'Đang mở cửa sổ Facebook...';
   showLockOverlay('Đang mở cửa sổ Facebook...');
   startLogPolling();
 
   try {
-    const res = await fetch('/api/open-login', { method: 'POST' });
+    const res = await fetch('/api/post-group/open-login', { method: 'POST' });
     const data = await res.json();
     hideLockOverlay();
     if (!data.success) {
@@ -258,21 +312,14 @@ openLoginBtn.addEventListener('click', async () => {
     }
     loginStatus.textContent =
       'Hãy tự đăng nhập trong cửa sổ vừa mở. App sẽ tự phát hiện và tiếp tục, không cần bấm gì thêm.';
-    confirmLoginBtn.hidden = false;
+    setLoginBtnConfirmMode(true);
+    openLoginBtn.disabled = false;
     pollUntilLoggedIn();
   } catch (err) {
     hideLockOverlay();
     loginStatus.textContent = 'Lỗi: ' + err.message;
     openLoginBtn.disabled = false;
   }
-});
-
-confirmLoginBtn.addEventListener('click', async () => {
-  stopLoginPolling();
-  confirmLoginBtn.disabled = true;
-  const ok = await confirmLoginAndLoadGroups();
-  if (!ok) confirmLoginBtn.disabled = false;
-  else confirmLoginBtn.hidden = true;
 });
 
 // Groups are cached so a normal page refresh doesn't have to re-scrape
@@ -295,6 +342,26 @@ function unlockSteps() {
   document.getElementById('post-compose-section').classList.remove('step-locked');
 }
 
+const loginInstructions = document.getElementById('loginInstructions');
+const identitySection = document.getElementById('identitySection');
+
+function collapseLoginSection() {
+  loginInstructions.hidden = true;
+  loginDoneBadge.hidden = false;
+  toggleLoginBtn.textContent = 'Hiện';
+  loginBody.hidden = true;
+  setLoginBtnMode('logout');
+}
+
+function expandLoginSection() {
+  loginInstructions.hidden = false;
+  loginDoneBadge.hidden = true;
+  toggleLoginBtn.textContent = 'Ẩn';
+  loginBody.hidden = false;
+  setLoginBtnMode('open');
+}
+
+
 function applyGroupsToUI(groups) {
   renderGroups(groups);
   loginStatus.textContent = `Tìm thấy ${groups.length} group.`;
@@ -307,29 +374,20 @@ function applyGroupsToUI(groups) {
   loadIdentities();
 }
 
-const identitySection = document.getElementById('identitySection');
 const identitySelect = document.getElementById('identitySelect');
 const reloadIdentitiesBtn = document.getElementById('reloadIdentitiesBtn');
-const identityStatus = document.getElementById('identityStatus');
-
 async function loadIdentities() {
   try {
-    const res = await fetch('/api/identities');
+    const res = await fetch('/api/post-group/identities');
     const data = await res.json();
-    if (!data.success) {
-      identityStatus.textContent = 'Lỗi lấy danh tính: ' + data.error;
-      return;
-    }
+    if (!data.success) return;
     const names = [data.current, ...data.switchable].filter(Boolean);
     identitySelect.innerHTML = names
       .map((n) => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`)
       .join('');
     identitySelect.value = data.current || names[0] || '';
-    identityStatus.textContent = data.current ? `Đang đăng với tư cách: ${data.current}` : '';
     identitySection.hidden = false;
-  } catch (err) {
-    identityStatus.textContent = 'Lỗi: ' + err.message;
-  }
+  } catch {}
 }
 
 reloadIdentitiesBtn.addEventListener('click', () => loadIdentities());
@@ -341,17 +399,14 @@ identitySelect.addEventListener('change', async () => {
   // message, so there's no flicker in between.
   showGroupSectionLock(`Đang chuyển sang đăng với tên: ${target}...`);
   try {
-    await fetch('/api/identities/switch', {
+    await fetch('/api/post-group/identities/switch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: target }),
     });
-    identityStatus.textContent = `Đang đăng với tư cách: ${target}`;
-    // Switching identity changes which groups are visible — always refetch fresh.
     await loadGroupsWithLock();
   } catch (err) {
     hideGroupSectionLock();
-    identityStatus.textContent = 'Lỗi chuyển danh tính: ' + err.message;
   }
 });
 
@@ -377,7 +432,7 @@ function hideGroupSectionLock() {
 async function loadGroupsWithLock() {
   showGroupSectionLock('Đang tải danh sách group...');
   try {
-    const groupsRes = await fetch('/api/groups');
+    const groupsRes = await fetch('/api/post-group/groups');
     const groupsData = await groupsRes.json();
     if (!groupsData.success) {
       hideGroupSectionLock();
@@ -399,7 +454,7 @@ async function loadGroupsWithLock() {
 async function confirmLoginQuietly() {
   showLockOverlay('Đang kiểm tra đăng nhập...');
   try {
-    const res = await fetch('/api/confirm-login', { method: 'POST' });
+    const res = await fetch('/api/post-group/confirm-login', { method: 'POST' });
     const data = await res.json();
     hideLockOverlay();
     if (!data.success) {
@@ -432,11 +487,11 @@ function pollUntilLoggedIn() {
   if (loginPollInterval) return;
   loginPollInterval = setInterval(async () => {
     try {
-      const res = await fetch('/api/confirm-login', { method: 'POST' });
+      const res = await fetch('/api/post-group/confirm-login', { method: 'POST' });
       const data = await res.json();
       if (data.success) {
         stopLoginPolling();
-        confirmLoginBtn.hidden = true;
+        collapseLoginSection();
         await loadGroupsWithLock();
       }
     } catch {
@@ -453,7 +508,7 @@ function stopLoginPolling() {
 // On page load, if a session was already saved from a previous run, skip
 // straight to the group list instead of making the user click through login again.
 (async () => {
-  const res = await fetch('/api/has-session');
+  const res = await fetch('/api/post-group/has-session');
   const { hasSession } = await res.json();
   if (!hasSession) return;
 
@@ -462,7 +517,7 @@ function stopLoginPolling() {
   startLogPolling();
   showLockOverlay('Đang mở trình duyệt và kiểm tra session...');
 
-  const openRes = await fetch('/api/open-login', { method: 'POST' });
+  const openRes = await fetch('/api/post-group/open-login', { method: 'POST' });
   const openData = await openRes.json();
   if (!openData.success) {
     hideLockOverlay();
@@ -478,11 +533,12 @@ function stopLoginPolling() {
     loginStatus.textContent +=
       ' Session cũ có thể đã hết hiệu lực — hãy tự đăng nhập lại trong cửa sổ vừa mở, app sẽ tự tiếp tục.';
     openLoginBtn.disabled = false;
-    confirmLoginBtn.hidden = false;
+    setLoginBtnConfirmMode(true);
     pollUntilLoggedIn();
     return;
   }
 
+  collapseLoginSection();
   if (!useCachedGroupsIfAny()) {
     await loadGroupsWithLock();
   }
@@ -530,7 +586,7 @@ function renderGroups(groups) {
 
 async function openGroupInAutomationBrowser(url) {
   try {
-    const res = await fetch('/api/open-group', {
+    const res = await fetch('/api/post-group/open-group', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url }),
@@ -583,7 +639,7 @@ const progressDockText = document.getElementById('progressDockText');
 const progressDockStats = document.getElementById('progressDockStats');
 
 async function cancelGroupPost(url) {
-  await fetch('/api/post/cancel', {
+  await fetch('/api/post-group/post/cancel', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url }),
@@ -591,7 +647,7 @@ async function cancelGroupPost(url) {
 }
 
 cancelAllPostBtn.addEventListener('click', async () => {
-  await fetch('/api/post/cancel-all', { method: 'POST' });
+  await fetch('/api/post-group/post/cancel-all', { method: 'POST' });
 });
 
 minimizePostModalBtn.addEventListener('click', () => {
@@ -644,7 +700,7 @@ function renderPostStatusTable(selectedGroups) {
 function startPostStatusPolling() {
   if (postStatusPollInterval) return;
   postStatusPollInterval = setInterval(async () => {
-    const res = await fetch('/api/post-status');
+    const res = await fetch('/api/post-group/post-status');
     const { postStatus } = await res.json();
     let success = 0;
     let error = 0;
@@ -671,8 +727,19 @@ function startPostStatusPolling() {
           a.target = '_blank';
           a.rel = 'noopener noreferrer';
           a.className = 'post-link-btn';
-          a.textContent = '🔗 Xem bài';
-          linkTd.appendChild(a);
+          a.textContent = 'Xem bài viết';
+
+          const copyBtn = document.createElement('button');
+          copyBtn.textContent = 'Sao chép';
+          copyBtn.className = 'copy-link-btn';
+          copyBtn.addEventListener('click', () => {
+            navigator.clipboard.writeText(item.postLink).then(() => {
+              copyBtn.textContent = 'Đã sao chép!';
+              setTimeout(() => { copyBtn.textContent = 'Sao chép'; }, 2000);
+            });
+          });
+
+          linkTd.append(a, copyBtn);
         }
 
         // Highlight the row the loop is actively working on right now.
@@ -751,12 +818,6 @@ const applyAiSuggestBtn = document.getElementById('applyAiSuggestBtn');
 let lastAiSuggestions = [];
 
 async function fetchAiSuggestions() {
-  const apiKey = getGeminiKey();
-  if (!apiKey) {
-    aiSuggestStatus.textContent = 'Chưa có Gemini API Key — nhập ở góc trên bên phải header trước.';
-    aiSuggestList.innerHTML = '';
-    return;
-  }
   const content = contentInput.value.trim();
   if (!content) {
     aiSuggestStatus.textContent = 'Chưa có nội dung trong ô Nội dung để AI gợi ý.';
@@ -768,10 +829,10 @@ async function fetchAiSuggestions() {
   aiSuggestList.innerHTML = '';
   reloadAiSuggestBtn.disabled = true;
   try {
-    const res = await fetch('/api/ai-suggest', {
+    const res = await fetch('/api/post-group/ai-suggest', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content, apiKey }),
+      body: JSON.stringify({ content }),
     });
     const data = await res.json();
     if (!data.success) {
@@ -1202,7 +1263,7 @@ fetchProductBtn.addEventListener('click', async () => {
   fetchProductStatus.textContent = '';
 
   try {
-    const res = await fetch('/api/fetch-product', {
+    const res = await fetch('/api/post-group/fetch-product', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url }),
@@ -1286,7 +1347,7 @@ postBtn.addEventListener('click', async () => {
   startPostStatusPolling();
 
   try {
-    const res = await fetch('/api/post', { method: 'POST', body: formData });
+    const res = await fetch('/api/post-group/post', { method: 'POST', body: formData });
     const data = await res.json();
     if (!data.success) alert(data.error);
   } catch (err) {
@@ -1295,3 +1356,4 @@ postBtn.addEventListener('click', async () => {
     postBtn.disabled = false;
   }
 });
+

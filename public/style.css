@@ -3,7 +3,7 @@ body {
   width: 100%;
   max-width: none;
   margin: 0;
-  padding: 24px 32px;
+  padding: 0 32px 24px;
   box-sizing: border-box;
   min-height: 100vh;
   display: flex;
@@ -29,6 +29,13 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-shrink: 0;
+}
+
+.app-header-title > div {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
 
 .app-logo-dot {
@@ -49,6 +56,7 @@ body {
   display: flex;
   align-items: center;
   gap: 16px;
+  margin-left: auto;
 }
 
 .help-btn {
@@ -61,8 +69,8 @@ body {
 }
 
 .app-credit {
-  font-size: 12px;
-  color: rgba(255, 255, 255, 0.85);
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.6);
   white-space: nowrap;
 }
 
@@ -80,6 +88,20 @@ body {
   padding: 5px 12px;
 }
 .logout-btn:hover { background: rgba(255,255,255,0.25); }
+
+#openLoginBtn {
+  display: block;
+  margin: 0 auto;
+}
+
+#openLoginBtn.logout-mode {
+  background: #e53935;
+  display: block;
+  margin: 10px auto 4px;
+}
+#openLoginBtn.logout-mode:hover {
+  background: #c62828;
+}
 
 .gemini-key-btn {
   background: rgba(255, 255, 255, 0.15);
@@ -157,11 +179,8 @@ body {
 
 .show-devlog-btn {
   position: fixed;
-  top: 24px;
+  bottom: 24px;
   right: 0;
-  /* Stays above the post-progress modal (z-index 1000) so it's never
-     blocked while a posting run is in progress — only the true app-busy
-     lock overlay (z-index 2000) should ever sit above this. */
   z-index: 1600;
   background: #e4e6eb;
   color: #1c1e21;
@@ -186,7 +205,7 @@ body {
   border: 1px solid #dadde1;
   border-radius: 8px;
   padding: 16px;
-  margin-bottom: 20px;
+  margin-bottom: 1px;
 }
 
 /* Step bị khóa khi chưa đăng nhập Facebook */
@@ -339,6 +358,13 @@ button:disabled {
   cursor: not-allowed;
 }
 
+#openLoginBtn.confirm-mode {
+  background: #2e7d32;
+}
+#openLoginBtn.confirm-mode:hover {
+  background: #1b5e20;
+}
+
 #groupSearch {
   margin-bottom: 8px;
 }
@@ -417,8 +443,10 @@ button:disabled {
   flex: 1;
   min-height: 120px;
   overflow-y: auto;
+  overflow-x: hidden;
   font-size: 12px;
   white-space: pre-wrap;
+  word-break: break-all;
 }
 
 .modal-overlay[hidden] {
@@ -449,6 +477,15 @@ button:disabled {
   width: 100%;
   border-collapse: collapse;
   margin: 12px 0;
+}
+
+#postStatusTable th:first-child,
+#postStatusTable td:first-child {
+  width: 160px;
+  min-width: 160px;
+  max-width: 160px;
+  word-break: break-word;
+  white-space: normal;
 }
 
 #postStatusTable th,
@@ -510,17 +547,28 @@ button:disabled {
 .post-link-cell { text-align: center; }
 
 .post-link-btn {
-  display: inline-block;
-  padding: 3px 10px;
-  font-size: 12px;
-  border-radius: 6px;
-  background: #e7f3ff;
   color: #1877f2;
-  text-decoration: none;
-  font-weight: 500;
+  text-decoration: underline;
+  font-size: 13px;
   white-space: nowrap;
 }
-.post-link-btn:hover { background: #cce4ff; }
+.post-link-btn:hover { color: #0a4faa; }
+
+.copy-link-btn {
+  background: none;
+  border: 1px solid #ccc;
+  color: #555;
+  font-size: 12px;
+  padding: 2px 0;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-left: 6px;
+  width: 90px;
+  display: inline-block;
+  text-align: center;
+  white-space: nowrap;
+}
+.copy-link-btn:hover { background: #f0f0f0; }
 
 .cancel-group-btn:disabled {
   background: #e4e6eb;
@@ -1097,6 +1145,78 @@ button:disabled {
 
 .gemini-key-modal-box {
   max-width: 420px;
+}
+
+.api-key-grid {
+  display: grid;
+  grid-template-columns: 40px 1fr;
+  row-gap: 10px;
+  column-gap: 8px;
+  margin-bottom: 4px;
+}
+
+.api-key-grid-hdr-priority {
+  font-size: 11px;
+  font-weight: 700;
+  color: #888;
+  text-align: center;
+}
+
+.api-priority-radio {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  align-self: end;
+  padding-bottom: 9px;
+}
+
+.api-priority-radio input[type="radio"] { display: none; }
+
+.api-priority-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 2px solid #ccc;
+  background: #fff;
+  transition: border-color 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.api-priority-dot::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: transparent;
+  transition: background 0.15s;
+}
+
+.api-priority-radio:has(input:checked) .api-priority-dot {
+  border-color: #2e7d32;
+}
+
+.api-priority-radio:has(input:checked) .api-priority-dot::after {
+  background: #2e7d32;
+}
+
+.api-key-col {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.api-key-col label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1c1e21;
+}
+
+.post-status-modal-box {
+  max-width: 860px;
 }
 
 .ai-suggest-list {

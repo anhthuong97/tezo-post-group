@@ -10,7 +10,10 @@
   <header class="app-header">
     <div class="app-header-title">
       <span class="app-logo-dot"></span>
-      <h1>FB Auto Poster</h1>
+      <div>
+        <h1>FB Auto Poster</h1>
+        <span class="app-credit">Developed by ThuongNA5 © 2026</span>
+      </div>
     </div>
     <div class="app-header-right">
       <button
@@ -22,7 +25,6 @@
       <button type="button" id="helpBtn" class="help-btn">Hướng dẫn sử dụng</button>
       <span id="appUsername" class="app-username"></span>
       <button type="button" id="logoutBtn" class="logout-btn">Đăng xuất</button>
-      <span class="app-credit">Developed by ThuongNA5 © 2026</span>
     </div>
   </header>
 
@@ -38,10 +40,11 @@
           <button type="button" id="toggleLoginBtn" class="ghost-btn">Ẩn</button>
         </div>
         <div id="loginBody">
-          <p>Bấm nút dưới để mở cửa sổ Facebook, sau đó <strong>tự đăng nhập bằng tay</strong> (nhập email/password, mã 2FA, xử lý captcha nếu có) ngay trong cửa sổ đó như bình thường.</p>
+          <div id="loginInstructions">
+            <p>Bấm nút dưới để mở cửa sổ Facebook, sau đó <strong>tự đăng nhập bằng tay</strong> (nhập email/password, mã 2FA, xử lý captcha nếu có) ngay trong cửa sổ đó như bình thường.</p>
+            <p id="loginStatus"></p>
+          </div>
           <button id="openLoginBtn">Mở Facebook để đăng nhập</button>
-          <button id="confirmLoginBtn" hidden>Tôi đã đăng nhập xong</button>
-          <p id="loginStatus"></p>
         </div>
         <div id="identitySection" class="identity-section" hidden>
           <label for="identitySelect">Đăng bài với tư cách</label>
@@ -49,7 +52,6 @@
             <select id="identitySelect"></select>
             <button type="button" id="reloadIdentitiesBtn" class="ghost-btn" title="Lấy lại danh sách danh tính mới nhất">⟳ Làm mới</button>
           </div>
-          <p id="identityStatus" class="hint"></p>
         </div>
       </section>
 
@@ -62,7 +64,7 @@
           <span class="step-badge step-badge-2">2</span>
           <h2>Chọn group</h2>
         </div>
-        <input type="text" id="groupSearch" placeholder="Tìm group theo tên..." />
+        <input type="text" id="groupSearch" placeholder="Tìm group theo tên..." autocomplete="off" readonly onfocus="this.removeAttribute('readonly')" />
         <div class="select-actions">
           <button type="button" id="selectAllBtn">Chọn tất cả</button>
           <button type="button" id="deselectAllBtn">Bỏ chọn tất cả</button>
@@ -145,7 +147,7 @@
   <button type="button" id="showDevLogBtn" class="show-devlog-btn">Tiến trình (dev)</button>
 
   <div id="postModalOverlay" class="modal-overlay" hidden>
-    <div class="modal-box">
+    <div class="modal-box post-status-modal-box">
       <div class="modal-header-row">
         <h2>Tiến trình đăng bài</h2>
         <div class="toolbar">
@@ -187,36 +189,38 @@
         <button type="button" id="closeHelpModalBtn" class="ghost-btn">Đóng</button>
       </div>
       <div class="help-content">
-        <h3>Bước 1: Đăng nhập</h3>
-        <p>Bấm nút "Mở Facebook để đăng nhập" để mở một cửa sổ trình duyệt riêng. Tự đăng nhập bằng tay như bình thường (email/số điện thoại, mật khẩu, mã 2FA, captcha nếu có). App sẽ tự nhận biết khi bạn đăng nhập xong và tự động chuyển sang bước tiếp theo — không cần bấm thêm nút nào. Lần đăng nhập sau sẽ được nhớ tự động.</p>
-
-        <h3>Bước 2: Chọn group</h3>
-        <p>Sau khi đăng nhập xong, danh sách group bạn đã tham gia sẽ hiện ở cột bên trái. Có thể gõ vào ô tìm kiếm để lọc theo tên, dùng nút "Chọn tất cả" / "Bỏ chọn tất cả", hoặc tự tick từng group muốn đăng vào. Bấm vào tên group (giống bấm 1 link) sẽ mở group đó trong trình duyệt tự động để bạn xem trước.</p>
-
-        <h3>Bước 3: Soạn bài đăng</h3>
+        <h3>Bước 1: Đăng nhập Facebook</h3>
+        <p>Nút ở Bước 1 tự đổi màu theo trạng thái:</p>
         <ul>
-          <li>Gõ nội dung vào ô "Nội dung". Link và hashtag (#) sẽ tự hiện màu xanh. Có thể bấm icon mặt cười để chèn emoji.</li>
-          <li>Bấm "Chọn ảnh" để thêm ảnh (có thể chọn nhiều lần). Bài viết chỉ cần có chữ HOẶC có ảnh, không bắt buộc phải có cả hai.</li>
-          <li>Có thể kéo-thả để đổi thứ tự ảnh trước khi đăng, hoặc bấm nút "x" để xóa từng ảnh.</li>
-          <li>Bấm "✨ AI gợi ý nội dung" để AI viết lại nội dung theo 5 cách diễn đạt khác nhau (vẫn giữ ý chính). Cần nhập Gemini API Key ở góc trên bên phải trước (chỉ cần nhập 1 lần, app tự nhớ). Chọn 1 gợi ý rồi bấm "OK" để áp dụng vào ô nội dung, hoặc bấm "Tạo lại" để AI viết 5 phiên bản mới.</li>
-          <li>Bấm "Xem trước" để xem bài viết sẽ trông như thế nào trước khi đăng thật.</li>
-          <li>Bấm "Đăng" để bắt đầu — app sẽ tự mở từng group đã chọn và đăng bài, có nghỉ ngẫu nhiên giữa các group để an toàn cho tài khoản.</li>
+          <li><strong>Xanh dương — "Mở Facebook để đăng nhập":</strong> Bấm để mở cửa sổ trình duyệt riêng. Tự đăng nhập bằng tay như bình thường (email/số điện thoại, mật khẩu, mã 2FA, captcha nếu có).</li>
+          <li><strong>Xanh lá — "Xác nhận đã đăng nhập":</strong> Sau khi đăng nhập xong trong cửa sổ đó, bấm nút này để app xác nhận và tải danh sách group.</li>
+          <li><strong>Đỏ — "Đăng xuất Facebook":</strong> Hiện khi đã đăng nhập. Bấm để đăng xuất và quay về trạng thái ban đầu.</li>
+        </ul>
+        <p>Phiên đăng nhập được nhớ tự động — lần sau mở app không cần đăng nhập lại.</p>
+        <p>Mục <strong>"Đăng bài với tư cách"</strong> cho phép chọn trang/profile Facebook muốn dùng để đăng (nếu tài khoản quản lý nhiều trang).</p>
+
+        <h3>Bước 2: Soạn và đăng bài</h3>
+        <ul>
+          <li><strong>Chọn group:</strong> Danh sách group hiện ở cột trái sau khi đăng nhập. Gõ vào ô tìm kiếm để lọc, dùng "Chọn tất cả" / "Bỏ chọn tất cả", hoặc tick từng group. Bấm tên group để mở xem trước trong trình duyệt.</li>
+          <li><strong>Lấy từ URL sản phẩm:</strong> Dán link sản phẩm Shopify rồi bấm "Lấy thông tin" — app tự điền nội dung và tải ảnh sản phẩm vào bài.</li>
+          <li><strong>Soạn nội dung:</strong> Gõ hoặc dán nội dung vào ô "Nội dung". Link và hashtag (#) tự hiện màu xanh. Bấm icon mặt cười để chèn emoji.</li>
+          <li><strong>Thêm ảnh:</strong> Bấm "Chọn ảnh" (có thể chọn nhiều lần). Kéo-thả để đổi thứ tự, bấm "×" để xóa từng ảnh.</li>
+          <li><strong>AI gợi ý:</strong> Bấm "✨ AI gợi ý nội dung" để AI viết lại nội dung theo 5 cách khác nhau (giữ nguyên ý chính). Cần cấu hình API Key trước (bấm nút 🔑 ở góc trên). Hỗ trợ cả Gemini và ChatGPT (OpenAI) — có thể chọn provider ưu tiên, app tự fallback sang cái còn lại nếu lỗi.</li>
+          <li><strong>Xem trước:</strong> Bấm "Xem trước" để kiểm tra bài viết trước khi đăng.</li>
+          <li><strong>Đăng bài:</strong> Bấm "Đăng" — app tự lần lượt mở từng group và đăng, nghỉ ngẫu nhiên giữa các lần để bảo vệ tài khoản.</li>
         </ul>
 
         <h3>Theo dõi tiến trình đăng bài</h3>
-        <p>Một khung hiện lên cho biết group nào đã đăng thành công, group nào lỗi. Có thể bấm "Thu nhỏ" để khung này chạy nền ở góc dưới bên phải màn hình, rồi bấm vào đó để mở lại xem chi tiết.</p>
+        <p>Khung trạng thái hiện ngay sau khi bấm Đăng, cho biết group nào thành công, group nào lỗi, kèm link bài vừa đăng. Bấm "Thu nhỏ" để chạy nền ở góc dưới màn hình, bấm vào để mở lại.</p>
 
-        <h3>Tùy chỉnh giao diện</h3>
-        <ul>
-          <li>Có thể kéo các thanh chia ở giữa màn hình để đổi độ rộng từng vùng theo ý muốn — độ rộng sẽ được nhớ lại cho lần sau.</li>
-          <li>Khung "Tiến trình (dev)" ở bên phải chỉ phục vụ việc xem log kỹ thuật, người dùng thông thường không cần quan tâm — có thể ẩn hẳn bằng nút "Ẩn", và mở lại bằng tab nhỏ ở mép phải màn hình.</li>
-        </ul>
+        <h3>Cấu hình API Key (AI)</h3>
+        <p>Bấm nút 🔑 ở góc trên bên phải để nhập Gemini API Key và/hoặc ChatGPT (OpenAI) API Key. Key được lưu theo tài khoản. Chọn radio "Ưu tiên" để đặt provider nào dùng trước — nếu lỗi app tự chuyển sang cái còn lại.</p>
 
         <h3>Lưu ý quan trọng</h3>
         <ul>
-          <li>Nội dung và ảnh đã chọn được tự lưu lại trên máy, mở lại app vẫn còn để chỉnh tiếp.</li>
-          <li>Không nên đăng quá nhiều group liên tục trong thời gian ngắn để tránh bị Facebook hạn chế tài khoản.</li>
-          <li>Không chia sẻ file "auth.json" của app cho người khác — đó là thông tin đăng nhập Facebook của bạn.</li>
+          <li>Nội dung và ảnh đã chọn tự lưu lại, mở lại app vẫn còn để chỉnh tiếp.</li>
+          <li>Không đăng quá nhiều group liên tục trong thời gian ngắn để tránh Facebook hạn chế tài khoản.</li>
+          <li>Nút "Tiến trình (dev)" ghim ở góc dưới bên phải — chỉ dùng để xem log kỹ thuật, người dùng thông thường không cần quan tâm.</li>
         </ul>
       </div>
     </div>
@@ -225,21 +229,34 @@
   <div id="geminiApiKeyModalOverlay" class="modal-overlay" hidden>
     <div class="modal-box gemini-key-modal-box">
       <div class="modal-header-row">
-        <h2>Gemini API Key</h2>
+        <h2>🔑 Cấu hình API Key</h2>
         <button type="button" id="closeGeminiKeyModalBtn" class="ghost-btn">Đóng</button>
       </div>
-      <div class="field">
-        <label for="geminiApiKeyModalInput">Nhập API Key</label>
-        <input
-          type="password"
-          id="geminiApiKeyModalInput"
-          placeholder="Dán Gemini API Key vào đây..."
-          autocomplete="off"
-        />
-        <p class="hint">Key được lưu trên máy bạn, dùng để gọi tính năng AI gợi ý nội dung. Key không hiển thị lại sau khi đã lưu — để đổi key, nhập key mới và bấm OK.</p>
+      <p class="hint" style="margin-bottom:14px">Key lưu theo tài khoản. Provider được đánh dấu ✓ sẽ được dùng trước — tự chuyển sang cái còn lại khi lỗi.</p>
+      <div class="api-key-grid">
+        <div class="api-key-grid-hdr-priority">Ưu tiên</div>
+        <div class="api-key-grid-hdr-field"></div>
+
+        <label class="api-priority-radio" for="aiPriorityGemini" title="Dùng Gemini trước">
+          <input type="radio" name="aiPriority" id="aiPriorityGemini" value="gemini" checked />
+          <span class="api-priority-dot"></span>
+        </label>
+        <div class="api-key-col">
+          <label for="geminiApiKeyModalInput">Gemini API Key</label>
+          <input type="password" id="geminiApiKeyModalInput" placeholder="Dán Gemini API Key..." autocomplete="off" />
+        </div>
+
+        <label class="api-priority-radio" for="aiPriorityOpenai" title="Dùng ChatGPT trước">
+          <input type="radio" name="aiPriority" id="aiPriorityOpenai" value="openai" />
+          <span class="api-priority-dot"></span>
+        </label>
+        <div class="api-key-col">
+          <label for="openaiApiKeyModalInput">ChatGPT (OpenAI) API Key</label>
+          <input type="password" id="openaiApiKeyModalInput" placeholder="Dán OpenAI API Key..." autocomplete="off" />
+        </div>
       </div>
-      <div class="actions">
-        <button type="button" id="saveGeminiKeyBtn">OK</button>
+      <div class="actions" style="justify-content:center;margin-top:12px">
+        <button type="button" id="saveGeminiKeyBtn">Lưu</button>
       </div>
     </div>
   </div>

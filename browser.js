@@ -90,6 +90,12 @@ function destroyUserSession(userId) {
   userSessions.delete(userId);
 }
 
+function logoutFacebook(userId) {
+  destroyUserSession(userId);
+  const authFile = getFbAuthFile(userId);
+  if (fs.existsSync(authFile)) fs.unlinkSync(authFile);
+}
+
 // ─── Identity switcher ────────────────────────────────────────────────────────
 
 async function openIdentitySwitcher(page) {
@@ -236,29 +242,66 @@ function cancelAllPending(userId) {
 
 // ─── Post helpers ─────────────────────────────────────────────────────────────
 
-async function getPostLink(page, postHeadline) {
+async function getPostLink(page, postHeadline, userId) {
   try {
-    await page.waitForTimeout(1500);
-    const text = (postHeadline || '').slice(0, 30);
-    const link = await page.evaluate((t) => {
+    const text = (postHeadline || '').slice(0, 25);
+    const isPostHref = (href) =>
+      href && (href.includes('/posts/') || href.includes('/permalink/') || href.includes('story_fbid'));
+
+    // Wait up to 8s for the post to appear in the feed
+    try {
+      await page.waitForFunction(
+        (t) => {
+          const divs = document.querySelectorAll('[data-ad-rendering-role="story_message"]');
+          return Array.from(divs).some((d) => d.textContent.includes(t));
+        },
+        text,
+        { timeout: 8000 }
+      );
+    } catch { /* not found by text — try fallback */ }
+
+    await page.waitForTimeout(1000);
+
+    const result = await page.evaluate(({ t }) => {
+      const isPostHref = (href) =>
+        href && (href.includes('/posts/') || href.includes('/permalink/') || href.includes('story_fbid'));
+
       const storyDivs = document.querySelectorAll('[data-ad-rendering-role="story_message"]');
       let target = null;
       for (const sd of storyDivs) {
         if (sd.textContent.includes(t)) { target = sd; break; }
       }
-      if (!target) return null;
-      let el = target;
-      for (let i = 0; i < 25; i++) {
-        el = el.parentElement;
-        if (!el) break;
-        for (const a of el.querySelectorAll('a[href*="/posts/"]')) {
-          if (a.href.includes('/posts/')) return a.href.split('?')[0];
+      if (!target && storyDivs.length > 0) target = storyDivs[0];
+
+      const nearbyHrefs = [];
+      if (target) {
+        let el = target;
+        for (let i = 0; i < 35; i++) {
+          el = el.parentElement;
+          if (!el) break;
+          for (const a of el.querySelectorAll('a[href]')) {
+            const h = a.href;
+            if (h && h.includes('facebook.com') && !h.includes('/groups/joins') && nearbyHrefs.length < 10)
+              nearbyHrefs.push(h.split('?')[0]);
+            if (isPostHref(h)) return { link: h.split('?')[0], method: 'story' };
+          }
         }
       }
-      return null;
-    }, text);
-    return link || null;
-  } catch { return null; }
+
+      for (const a of document.querySelectorAll('a[href]')) {
+        if (isPostHref(a.href) && a.href.includes('facebook.com')) {
+          return { link: a.href.split('?')[0], method: 'page' };
+        }
+      }
+      return { link: null, storyCount: storyDivs.length, nearbyHrefs };
+    }, { t: text });
+
+    if (userId) log(userId, `  getPostLink: ${JSON.stringify(result)}`);
+    return result.link || null;
+  } catch (err) {
+    if (userId) log(userId, `  getPostLink lỗi: ${err.message}`);
+    return null;
+  }
 }
 
 async function commentOnPost(page, commentText, postHeadline) {
@@ -361,14 +404,43 @@ async function postToGroups(userId, { groups, content, imagePaths, productLink }
 
       const postBtn = page.getByRole('button', { name: /^đăng$|^post$/i }).last();
       await postBtn.waitFor({ state: 'visible', timeout: 15000 });
+
+      // Intercept GraphQL response to capture post ID before clicking
+      let capturedPostId = null;
+      const responseHandler = async (response) => {
+        if (capturedPostId) return;
+        if (!response.url().includes('graphql')) return;
+        try {
+          const text = await response.text();
+          // Match story_id, post_id, or node_id patterns
+          const m = text.match(/"story_id"\s*:\s*"(\d+)"/) ||
+                    text.match(/"post_id"\s*:\s*"(\d+)"/) ||
+                    text.match(/"id"\s*:\s*"(\d{15,})"/) ;
+          if (m) capturedPostId = m[1];
+        } catch {}
+      };
+      page.on('response', responseHandler);
+
       await postBtn.click();
       await dialogHeader.waitFor({ state: 'hidden', timeout: 20000 });
+
+      // Wait a moment for GraphQL response to arrive
+      await page.waitForTimeout(2000);
+      page.off('response', responseHandler);
 
       log(userId, `✓ Đã đăng vào group ${i + 1}/${groups.length}`);
 
       const postHeadline = (content || '').split('\n')[0].trim();
+      const groupId = (groups[i].url.match(/groups\/(\d+)/) || [])[1];
 
-      const capturedLink = await getPostLink(page, postHeadline);
+      let capturedLink = null;
+      if (capturedPostId && groupId) {
+        capturedLink = `https://www.facebook.com/groups/${groupId}/posts/${capturedPostId}/`;
+        log(userId, `  Link bài: ${capturedLink}`);
+      } else {
+        // Fallback to DOM scraping
+        capturedLink = await getPostLink(page, postHeadline, userId);
+      }
       if (capturedLink) s.postStatus[i].postLink = capturedLink;
 
       if (productLink) {
@@ -414,4 +486,5 @@ module.exports = {
   cancelAllPending,
   listIdentities,
   switchIdentity,
+  logoutFacebook,
 };

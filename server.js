@@ -1,4 +1,4 @@
-require('dotenv').config();
+﻿require('dotenv').config();
 const path = require('path');
 const fs = require('fs');
 const express = require('express');
@@ -21,6 +21,7 @@ const {
   cancelAllPending,
   listIdentities,
   switchIdentity,
+  logoutFacebook,
 } = require('./browser');
 const { getAiSuggestions, buildProductPost } = require('./gemini');
 
@@ -43,7 +44,7 @@ app.use(session({
 }));
 
 // Static files — served AFTER session middleware so login.html is public
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(path.join(__dirname, 'public'), { etag: false, maxAge: 0 }));
 
 // ─── Uploads ──────────────────────────────────────────────────────────────────
 const uploadsDir = path.join(__dirname, 'uploads');
@@ -57,18 +58,23 @@ const upload = multer({
 });
 
 // ─── Auth routes (public) ─────────────────────────────────────────────────────
-app.post('/api/auth/login', loginHandler);
-app.post('/api/auth/logout', logoutHandler);
-app.get('/api/auth/me', meHandler);
+app.post('/api/post-group/auth/login', loginHandler);
+app.post('/api/post-group/auth/logout', logoutHandler);
+app.get('/api/post-group/auth/me', meHandler);
 
 // ─── All routes below require login ──────────────────────────────────────────
-app.use('/api', requireAuth);
+app.use('/api/post-group', requireAuth);
 
-app.get('/api/has-session', (req, res) => {
+app.post('/api/post-group/logout-facebook', (req, res) => {
+  logoutFacebook(req.session.userId);
+  res.json({ success: true });
+});
+
+app.get('/api/post-group/has-session', (req, res) => {
   res.json({ hasSession: hasSavedSession(req.session.userId) });
 });
 
-app.post('/api/open-login', async (req, res) => {
+app.post('/api/post-group/open-login', async (req, res) => {
   try {
     await openLoginPage(req.session.userId);
     res.json({ success: true });
@@ -77,7 +83,7 @@ app.post('/api/open-login', async (req, res) => {
   }
 });
 
-app.post('/api/confirm-login', async (req, res) => {
+app.post('/api/post-group/confirm-login', async (req, res) => {
   try {
     await confirmLogin(req.session.userId);
     res.json({ success: true });
@@ -86,7 +92,7 @@ app.post('/api/confirm-login', async (req, res) => {
   }
 });
 
-app.get('/api/groups', async (req, res) => {
+app.get('/api/post-group/groups', async (req, res) => {
   try {
     const groups = await listGroups(req.session.userId);
     res.json({ success: true, groups });
@@ -95,7 +101,7 @@ app.get('/api/groups', async (req, res) => {
   }
 });
 
-app.post('/api/open-group', async (req, res) => {
+app.post('/api/post-group/open-group', async (req, res) => {
   try {
     await openGroupUrl(req.session.userId, req.body.url);
     res.json({ success: true });
@@ -104,7 +110,7 @@ app.post('/api/open-group', async (req, res) => {
   }
 });
 
-app.post('/api/post', upload.array('images', 50), (req, res) => {
+app.post('/api/post-group/post', upload.array('images', 50), (req, res) => {
   const userId = req.session.userId;
   let groups;
   try {
@@ -126,27 +132,27 @@ app.post('/api/post', upload.array('images', 50), (req, res) => {
     .finally(() => { for (const p of imagePaths) fs.unlink(p, () => {}); });
 });
 
-app.get('/api/log', (req, res) => {
+app.get('/api/post-group/log', (req, res) => {
   const s = getUserState(req.session.userId);
   res.json({ log: s.log });
 });
 
-app.get('/api/post-status', (req, res) => {
+app.get('/api/post-group/post-status', (req, res) => {
   const s = getUserState(req.session.userId);
   res.json({ postStatus: s.postStatus });
 });
 
-app.post('/api/post/cancel', (req, res) => {
+app.post('/api/post-group/post/cancel', (req, res) => {
   cancelGroup(req.session.userId, req.body.url);
   res.json({ success: true });
 });
 
-app.post('/api/post/cancel-all', (req, res) => {
+app.post('/api/post-group/post/cancel-all', (req, res) => {
   cancelAllPending(req.session.userId);
   res.json({ success: true });
 });
 
-app.get('/api/identities', async (req, res) => {
+app.get('/api/post-group/identities', async (req, res) => {
   try {
     const result = await listIdentities(req.session.userId);
     res.json({ success: true, ...result });
@@ -155,7 +161,7 @@ app.get('/api/identities', async (req, res) => {
   }
 });
 
-app.post('/api/identities/switch', async (req, res) => {
+app.post('/api/post-group/identities/switch', async (req, res) => {
   try {
     await switchIdentity(req.session.userId, req.body.name);
     res.json({ success: true });
@@ -164,12 +170,76 @@ app.post('/api/identities/switch', async (req, res) => {
   }
 });
 
-app.post('/api/ai-suggest', async (req, res) => {
-  const { content, apiKey } = req.body;
-  if (!apiKey) return res.status(400).json({ success: false, error: 'Chưa nhập Gemini API Key.' });
+function maskKey(key) {
+  if (!key) return '';
+  return key.length > 8 ? key.slice(0, 4) + '***' + key.slice(-4) : '***';
+}
+
+app.get('/api/post-group/settings/api-keys', async (req, res) => {
+  const { rows } = await pool.query(
+    'SELECT provider, api_key FROM api_keys WHERE employee_id = $1 AND is_active = true',
+    [req.session.userId]
+  );
+  const result = {};
+  for (const row of rows) result[row.provider] = { hasKey: true, masked: maskKey(row.api_key) };
+  const prefRow = await pool.query(
+    "SELECT api_key FROM api_keys WHERE employee_id = $1 AND provider = 'priority'",
+    [req.session.userId]
+  );
+  result.priority = prefRow.rows[0]?.api_key || 'gemini';
+  res.json(result);
+});
+
+app.put('/api/post-group/settings/ai-priority', async (req, res) => {
+  const { priority } = req.body;
+  if (!['gemini', 'openai'].includes(priority)) return res.status(400).json({ success: false });
+  await pool.query(
+    `INSERT INTO api_keys (employee_id, provider, api_key)
+     VALUES ($1, 'priority', $2)
+     ON CONFLICT (employee_id, provider) DO UPDATE SET api_key = $2, updated_at = NOW()`,
+    [req.session.userId, priority]
+  );
+  res.json({ success: true });
+});
+
+app.put('/api/post-group/settings/api-keys', async (req, res) => {
+  const { provider, apiKey } = req.body;
+  if (!['gemini', 'openai'].includes(provider)) {
+    return res.status(400).json({ success: false, error: 'Provider không hợp lệ.' });
+  }
+  if (apiKey) {
+    await pool.query(
+      `INSERT INTO api_keys (employee_id, provider, api_key)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (employee_id, provider) DO UPDATE SET api_key = $3, updated_at = NOW()`,
+      [req.session.userId, provider, apiKey]
+    );
+  } else {
+    await pool.query(
+      'DELETE FROM api_keys WHERE employee_id = $1 AND provider = $2',
+      [req.session.userId, provider]
+    );
+  }
+  res.json({ success: true });
+});
+
+app.post('/api/post-group/ai-suggest', async (req, res) => {
+  const { content } = req.body;
+  const { rows } = await pool.query(
+    'SELECT provider, api_key FROM api_keys WHERE employee_id = $1 AND is_active = true',
+    [req.session.userId]
+  );
+  const keys = Object.fromEntries(rows.map((r) => [r.provider, r.api_key]));
+  const priority = keys.priority || 'gemini';
+  if (!keys.gemini && !keys.openai) {
+    return res.status(400).json({ success: false, error: 'Chưa cấu hình API Key (Gemini hoặc ChatGPT).' });
+  }
   if (!content?.trim()) return res.status(400).json({ success: false, error: 'Chưa có nội dung.' });
+  const aiOpts = (priority === 'openai' && keys.openai)
+    ? { geminiKey: null, openaiKey: keys.openai, fallbackKey: keys.gemini }
+    : { geminiKey: keys.gemini, openaiKey: keys.openai };
   try {
-    const suggestions = await getAiSuggestions(content, apiKey);
+    const suggestions = await getAiSuggestions(content, aiOpts);
     res.json({ success: true, suggestions });
   } catch (err) {
     res.status(400).json({ success: false, error: err.message });
@@ -182,7 +252,7 @@ app.get('/uploads/:filename', (req, res) => {
   res.sendFile(filePath);
 });
 
-app.post('/api/fetch-product', async (req, res) => {
+app.post('/api/post-group/fetch-product', async (req, res) => {
   const { url } = req.body;
   if (!url) return res.status(400).json({ success: false, error: 'Thiếu URL sản phẩm.' });
 
@@ -234,3 +304,4 @@ app.get('/', (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`App đang chạy tại http://localhost:${PORT}`));
+
