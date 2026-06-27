@@ -9,6 +9,7 @@ import { PostComposer } from '@/modules/post-group/features/post/components/Post
 import { PostStatusModal } from '@/modules/post-group/features/post/components/PostStatusModal';
 import { PostProgressDock } from '@/modules/post-group/features/post/components/PostProgressDock';
 import { ApiKeyModal } from '@/modules/post-group/features/settings/components/ApiKeyModal';
+import { UserManageModal } from '@/modules/post-group/features/auth/components/UserManageModal';
 import { DevLog } from '@/shared/components/DevLog';
 import { Button } from '@/shared/components/Button';
 
@@ -22,8 +23,9 @@ import { usePolling } from '@/shared/hooks/usePolling';
 export default function DashboardPage() {
   const router = useRouter();
   const [username, setUsername]     = useState('');
-  const [apiKeyOpen, setApiKeyOpen] = useState(false);
-  const [statusOpen, setStatusOpen] = useState(false);
+  const [apiKeyOpen, setApiKeyOpen]   = useState(false);
+  const [statusOpen, setStatusOpen]   = useState(false);
+  const [userMgmtOpen, setUserMgmtOpen] = useState(false);
 
   useEffect(() => {
     authApi.me()
@@ -113,6 +115,10 @@ export default function DashboardPage() {
           </div>
         </div>
         <div className="flex items-center gap-3">
+          <button onClick={() => setUserMgmtOpen(true)}
+            className="text-xs text-blue-100 hover:text-white px-2.5 py-1 rounded-md hover:bg-white/10 transition-colors">
+            Tài khoản
+          </button>
           <button onClick={() => setApiKeyOpen(true)}
             className="text-xs text-blue-100 hover:text-white px-2.5 py-1 rounded-md hover:bg-white/10 transition-colors">
             API Key
@@ -211,6 +217,7 @@ export default function DashboardPage() {
       )}
 
       <ApiKeyModal open={apiKeyOpen} onClose={() => setApiKeyOpen(false)} />
+      <UserManageModal open={userMgmtOpen} onClose={() => setUserMgmtOpen(false)} />
       <DevLog logs={ps.logs} />
     </div>
   );

@@ -6,6 +6,26 @@ import { AuthRepository } from '../repository/auth.repository';
 export class AuthService {
   constructor(private readonly repo: AuthRepository) {}
 
+  private readonly DEFAULT_PASSWORD = 'Admin@123';
+
+  async createEmployee(username: string): Promise<{ id: number; username: string }> {
+    const hash = await bcrypt.hash(this.DEFAULT_PASSWORD, 10);
+    return this.repo.createEmployee(username, hash);
+  }
+
+  async listEmployees() {
+    return this.repo.listEmployees();
+  }
+
+  async toggleActive(userId: number, isActive: boolean): Promise<void> {
+    return this.repo.toggleActive(userId, isActive);
+  }
+
+  async resetPassword(userId: number): Promise<void> {
+    const hash = await bcrypt.hash(this.DEFAULT_PASSWORD, 10);
+    return this.repo.resetPassword(userId, hash);
+  }
+
   async login(username: string, password: string): Promise<{ id: number; username: string }> {
     const user = await this.repo.findByUsername(username);
 

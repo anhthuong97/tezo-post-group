@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Req, Res, UseGuards, HttpCode } from '@nestjs/common';
+import { Controller, Post, Get, Body, Req, Res, UseGuards, HttpCode, Patch, Param, ParseIntPipe } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { AuthService } from '../service/auth.service';
 import { LoginDto } from '../dto/login.dto';
@@ -13,10 +13,10 @@ export class AuthController {
   @HttpCode(200)
   @UseGuards(RateLimitGuard)
   async login(@Body() dto: LoginDto, @Req() req: Request) {
-    const user         = await this.auth.login(dto.username, dto.password);
+    const user              = await this.auth.login(dto.username, dto.password);
     req.session['userId']   = user.id;
     req.session['username'] = user.username;
-    req.session['vncPass']  = dto.password; // dùng cho VNC password (plain-text, lưu trong session cookie)
+    req.session['vncPass']  = dto.password;
     return { success: true, username: user.username };
   }
 
@@ -37,5 +37,39 @@ export class AuthController {
       userId: req.session['userId'],
       username: req.session['username'],
     };
+  }
+
+  // ─── User management ──────────────────────────────────────────────────────
+
+  @Get('users')
+  @UseGuards(SessionGuard)
+  listUsers() {
+    return this.auth.listEmployees();
+  }
+
+  @Post('users')
+  @UseGuards(SessionGuard)
+  async createUser(@Body('username') username: string) {
+    if (!username?.trim()) return { success: false, error: 'Thiếu username.' };
+    try {
+      const user = await this.auth.createEmployee(username.trim());
+      return { success: true, user };
+    } catch (e: any) {
+      return { success: false, error: e.message?.includes('unique') ? 'Username đã tồn tại.' : e.message };
+    }
+  }
+
+  @Patch('users/:id/toggle')
+  @UseGuards(SessionGuard)
+  async toggleUser(@Param('id', ParseIntPipe) id: number, @Body('isActive') isActive: boolean) {
+    await this.auth.toggleActive(id, isActive);
+    return { success: true };
+  }
+
+  @Patch('users/:id/reset-password')
+  @UseGuards(SessionGuard)
+  async resetPassword(@Param('id', ParseIntPipe) id: number) {
+    await this.auth.resetPassword(id);
+    return { success: true };
   }
 }

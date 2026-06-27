@@ -1,7 +1,7 @@
 export const API_BASE = '/api/post-group';
 
 export const ENDPOINTS = {
-  auth:     { login: `${API_BASE}/auth/login`, logout: `${API_BASE}/auth/logout`, me: `${API_BASE}/auth/me` },
+  auth:     { login: `${API_BASE}/auth/login`, logout: `${API_BASE}/auth/logout`, me: `${API_BASE}/auth/me`, users: `${API_BASE}/auth/users` },
   facebook: { session: `${API_BASE}/facebook/session`, checkLogin: `${API_BASE}/facebook/check-login`, open: `${API_BASE}/facebook/open`, confirm: `${API_BASE}/facebook/confirm`, logout: `${API_BASE}/facebook/logout` },
   groups:   { list: `${API_BASE}/groups`, open: `${API_BASE}/groups/open` },
   identity: { list: `${API_BASE}/identity`, switch: `${API_BASE}/identity/switch` },
