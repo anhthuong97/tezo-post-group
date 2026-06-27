@@ -75,7 +75,7 @@ export class VncService implements OnModuleDestroy {
       '-display', `:${s.display}`,
       '-passwd', vncPass,
       '-rfbport', String(s.vncPort),
-      '-forever', '-nopw', '-shared', '-quiet',
+      '-forever', '-nopw', '-shared', '-noxdamage', '-quiet',
     ], { detached: false, stdio: 'ignore' });
 
     this.killProc(s.websockifyProc);
@@ -109,7 +109,7 @@ export class VncService implements OnModuleDestroy {
     s.x11vncProc = spawn('x11vnc', [
       '-display', `:${s.display}`,
       '-rfbport', String(s.vncPort),
-      '-forever', '-nopw', '-shared', '-viewonly', '-quiet',
+      '-forever', '-nopw', '-shared', '-viewonly', '-noxdamage', '-quiet',
     ], { detached: false, stdio: 'ignore' });
 
     this.killProc(s.websockifyProc);
