@@ -1,5 +1,5 @@
 import { Injectable, OnModuleDestroy } from '@nestjs/common';
-import { spawn, ChildProcess } from 'child_process';
+import { spawn, ChildProcess, execSync } from 'child_process';
 import * as os from 'os';
 
 interface VncUserSession {
@@ -16,6 +16,8 @@ interface VncUserSession {
 const DISPLAY_START = 10;
 const WS_PORT_START = 6080;
 const MONITOR_IDLE_MS = 10 * 60 * 1000;
+
+const log = (...args: any[]) => console.log('[VNC]', ...args);
 
 @Injectable()
 export class VncService implements OnModuleDestroy {
@@ -41,6 +43,7 @@ export class VncService implements OnModuleDestroy {
   private getOrCreate(userId: number): VncUserSession {
     if (!this.sessions.has(userId)) {
       const display = this.nextDisplay++;
+      log(`user=${userId} allocate display=:${display} vncPort=${5900 + display} wsPort=${WS_PORT_START + (display - DISPLAY_START)}`);
       this.sessions.set(userId, {
         display,
         vncPort: 5900 + display,
@@ -55,54 +58,97 @@ export class VncService implements OnModuleDestroy {
     return this.sessions.get(userId)!;
   }
 
+  private spawnLogged(cmd: string, args: string[], tag: string): ChildProcess {
+    log(`spawn [${tag}]: ${cmd} ${args.join(' ')}`);
+    const proc = spawn(cmd, args, { detached: false, stdio: ['ignore', 'pipe', 'pipe'] });
+    proc.stdout?.on('data', (d) => log(`[${tag}] stdout:`, d.toString().trim()));
+    proc.stderr?.on('data', (d) => log(`[${tag}] stderr:`, d.toString().trim()));
+    proc.on('exit', (code, sig) => log(`[${tag}] exit code=${code} signal=${sig}`));
+    proc.on('error', (err) => log(`[${tag}] error:`, err.message));
+    return proc;
+  }
+
   private async startXvfb(s: VncUserSession): Promise<void> {
-    if (s.xvfbProc && !s.xvfbProc.killed) return;
-    // Kill orphan processes từ lần chạy trước (server restart)
-    spawn('pkill', ['-f', `Xvfb :${s.display}`], { stdio: 'ignore' });
-    spawn('pkill', ['-f', `x11vnc.*:${s.vncPort}`], { stdio: 'ignore' });
-    spawn('pkill', ['-f', `websockify.*${s.wsPort}`], { stdio: 'ignore' });
+    if (s.xvfbProc && !s.xvfbProc.killed) {
+      log(`Xvfb :${s.display} already running pid=${s.xvfbProc.pid}`);
+      return;
+    }
+
+    // Kill orphan processes từ lần chạy trước
+    log(`Killing orphan processes on display :${s.display}...`);
+    try { execSync(`pkill -f "Xvfb :${s.display}"`, { stdio: 'ignore' }); } catch {}
+    try { execSync(`pkill -f "x11vnc.*${s.vncPort}"`, { stdio: 'ignore' }); } catch {}
+    try { execSync(`pkill -f "websockify.*${s.wsPort}"`, { stdio: 'ignore' }); } catch {}
     await new Promise((r) => setTimeout(r, 800));
-    s.xvfbProc = spawn('Xvfb', [`:${s.display}`, '-screen', '0', '1280x900x24'], {
-      detached: false,
-      stdio: 'ignore',
-    });
-    await new Promise((r) => setTimeout(r, 1200));
+
+    // Kiểm tra port VNC có đang bị chiếm không
+    try {
+      const lsof = execSync(`lsof -ti:${s.vncPort} 2>/dev/null || true`).toString().trim();
+      if (lsof) {
+        log(`Port ${s.vncPort} still in use by pid=${lsof}, force kill...`);
+        execSync(`kill -9 ${lsof}`, { stdio: 'ignore' });
+        await new Promise((r) => setTimeout(r, 500));
+      }
+    } catch {}
+
+    s.xvfbProc = this.spawnLogged('Xvfb', [`:${s.display}`, '-screen', '0', '1280x900x24'], `Xvfb:${s.display}`);
+    log(`Xvfb started pid=${s.xvfbProc.pid}, waiting 1.5s...`);
+    await new Promise((r) => setTimeout(r, 1500));
+
+    // Verify Xvfb running
+    try {
+      execSync(`DISPLAY=:${s.display} xdpyinfo > /dev/null 2>&1`);
+      log(`Xvfb :${s.display} verified OK`);
+    } catch {
+      log(`WARNING: Xvfb :${s.display} may not be ready yet`);
+    }
   }
 
   async startLoginSession(userId: number, vncPass: string): Promise<{ wsPort: number; display: number }> {
     if (!this.isLinux) throw new Error('VNC chỉ hỗ trợ trên Linux.');
+    log(`startLoginSession user=${userId}`);
     const s = this.getOrCreate(userId);
 
     await this.startXvfb(s);
 
     this.killProc(s.x11vncProc);
-    s.x11vncProc = spawn('x11vnc', [
+    s.x11vncProc = this.spawnLogged('x11vnc', [
       '-display', `:${s.display}`,
       '-passwd', vncPass,
       '-rfbport', String(s.vncPort),
-      '-forever', '-nopw', '-shared', '-noxdamage', '-quiet',
-    ], { detached: false, stdio: 'ignore' });
+      '-forever', '-nopw', '-shared', '-noxdamage',
+    ], `x11vnc:${s.vncPort}`);
+
+    await new Promise((r) => setTimeout(r, 1000));
 
     this.killProc(s.websockifyProc);
-    s.websockifyProc = spawn('websockify', [
+    s.websockifyProc = this.spawnLogged('websockify', [
       '--web', '/usr/share/novnc',
       String(s.wsPort),
       `localhost:${s.vncPort}`,
-    ], { detached: false, stdio: 'ignore' });
+    ], `websockify:${s.wsPort}`);
+
+    // Verify websockify listening
+    await new Promise((r) => setTimeout(r, 1000));
+    try {
+      const listening = execSync(`lsof -ti:${s.wsPort} 2>/dev/null || true`).toString().trim();
+      log(`websockify port ${s.wsPort} listening: ${listening ? 'YES pid=' + listening : 'NO - check error above'}`);
+    } catch {}
 
     s.phase = 'login';
+    log(`startLoginSession done: wsPort=${s.wsPort} display=:${s.display}`);
     return { wsPort: s.wsPort, display: s.display };
   }
 
   stopLoginSession(userId: number): void {
     const s = this.sessions.get(userId);
     if (!s) return;
+    log(`stopLoginSession user=${userId}`);
     this.killProc(s.x11vncProc); s.x11vncProc = null;
     this.killProc(s.websockifyProc); s.websockifyProc = null;
     s.phase = 'idle';
   }
 
-  // view-only — server-enforced, không cần password
   async startMonitor(userId: number): Promise<{ wsPort: number }> {
     if (!this.isLinux) throw new Error('VNC chỉ hỗ trợ trên Linux.');
     const s = this.sessions.get(userId);
@@ -111,18 +157,18 @@ export class VncService implements OnModuleDestroy {
     }
 
     this.killProc(s.x11vncProc);
-    s.x11vncProc = spawn('x11vnc', [
+    s.x11vncProc = this.spawnLogged('x11vnc', [
       '-display', `:${s.display}`,
       '-rfbport', String(s.vncPort),
-      '-forever', '-nopw', '-shared', '-viewonly', '-noxdamage', '-quiet',
-    ], { detached: false, stdio: 'ignore' });
+      '-forever', '-nopw', '-shared', '-viewonly', '-noxdamage',
+    ], `x11vnc-monitor:${s.vncPort}`);
 
     this.killProc(s.websockifyProc);
-    s.websockifyProc = spawn('websockify', [
+    s.websockifyProc = this.spawnLogged('websockify', [
       '--web', '/usr/share/novnc',
       String(s.wsPort),
       `localhost:${s.vncPort}`,
-    ], { detached: false, stdio: 'ignore' });
+    ], `websockify:${s.wsPort}`);
 
     s.phase = 'monitor';
     this.resetMonitorTimer(userId, s);
@@ -148,7 +194,7 @@ export class VncService implements OnModuleDestroy {
     if (s.monitorTimer) clearTimeout(s.monitorTimer);
     s.monitorTimer = setTimeout(() => {
       this.stopMonitor(userId);
-      console.log(`[VNC] Auto-close monitor user=${userId} (idle 10min)`);
+      log(`Auto-close monitor user=${userId} (idle 10min)`);
     }, MONITOR_IDLE_MS);
   }
 
