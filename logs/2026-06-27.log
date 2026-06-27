@@ -934,3 +934,7 @@ Call log:
 Call log:
 [2m  - navigating to "https://www.facebook.com/pages/?category=your_pages&ref=bookmarks", waiting until "domcontentloaded"[22m
 
+[22:59:44] [U4] Đã nạp session Facebook đã lưu.
+[22:59:44] [U4] Đang lấy danh sách tư cách...
+[22:59:47] [U4] Lỗi khi lấy tư cách: page.waitForTimeout: Target page, context or browser has been closed
+[22:59:48] [U4] Đã mở cửa sổ Facebook. Đang chờ bạn đăng nhập...

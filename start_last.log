@@ -1,23 +1,23 @@
-[Sat 06/27/2026 22:48:27.03] === STARTING === 
-[22:48:27.04] Step 1: node check 
-[22:48:27.08] OK: node v24.14.0 
-[22:48:27.11] Step 2: env check 
-[22:48:27.12] OK: .env exists 
-[22:48:27.12] Step 3: free ports 
-[22:48:28.56] Step 4: node_modules 
-[22:48:28.56] OK: node_modules exists 
-[22:48:28.57] Step 5a: nestjs build check 
-[22:48:28.58] OK: nestjs build exists 
-[22:48:28.59] Step 5: playwright 
-[22:48:28.61] OK: playwright exists 
-[22:48:28.61] Step 6: PM2 start 
-[22:48:28.62] Calling pm2 delete all... 
-[22:48:31.52] pm2 delete done 
-[22:48:31.52] Calling pm2 start... 
-[22:48:33.07] pm2 start done, EL=0 
-[22:48:33.08] PM2 OK, waiting for ports... 
-[22:48:33.08] Checking port 3000, WAIT=0 
-[22:48:35.13] Checking port 3000, WAIT=1 
-[22:48:35.15] OK: port 3000 ready 
-[22:48:47.48] OK: port 3001 ready 
-[22:48:47.54] === DONE === 
+[Sat 06/27/2026 22:59:34.60] === STARTING === 
+[22:59:34.60] Step 1: node check 
+[22:59:34.64] OK: node v24.14.0 
+[22:59:34.67] Step 2: env check 
+[22:59:34.67] OK: .env exists 
+[22:59:34.68] Step 3: free ports 
+[22:59:36.11] Step 4: node_modules 
+[22:59:36.11] OK: node_modules exists 
+[22:59:36.11] Step 5a: nestjs build check 
+[22:59:36.12] OK: nestjs build exists 
+[22:59:36.13] Step 5: playwright 
+[22:59:36.16] OK: playwright exists 
+[22:59:36.16] Step 6: PM2 start 
+[22:59:36.17] Calling pm2 delete all... 
+[22:59:39.20] pm2 delete done 
+[22:59:39.20] Calling pm2 start... 
+[22:59:40.05] pm2 start done, EL=0 
+[22:59:40.14] PM2 OK, waiting for ports... 
+[22:59:40.16] Checking port 3000, WAIT=0 
+[22:59:42.23] Checking port 3000, WAIT=1 
+[22:59:42.25] OK: port 3000 ready 
+[22:59:42.26] OK: port 3001 ready 
+[22:59:42.33] === DONE === 

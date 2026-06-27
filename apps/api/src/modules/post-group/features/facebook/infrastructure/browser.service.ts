@@ -2,6 +2,7 @@ import { Injectable, OnModuleDestroy, Optional } from '@nestjs/common';
 import { chromium, Browser, Page } from 'playwright';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as os from 'os';
 import { UserSessionStore } from './user-session.store';
 import { VncService } from '../../vnc/service/vnc.service';
 
@@ -61,12 +62,13 @@ export class BrowserService implements OnModuleDestroy {
     if (this.sharedBrowser?.isConnected()) return this.sharedBrowser;
     if (!this.browserInitPromise) {
       this.browserInitPromise = (async () => {
+        const isLinux = os.platform() === 'linux';
         this.sharedBrowser = await chromium.launch({
-          headless: true,
+          headless: isLinux, // headed trên Windows/Mac, headless trên Linux server không có VNC
           args: ['--no-sandbox', '--disable-setuid-sandbox'],
           ...(PROXY_URL ? { proxy: { server: PROXY_URL } } : {}),
         });
-        console.log('[Browser] Chromium headless started');
+        console.log(`[Browser] Chromium ${isLinux ? 'headless' : 'headed'} started`);
       })().finally(() => { this.browserInitPromise = null; });
     }
     await this.browserInitPromise;
