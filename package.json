@@ -1,19 +1,15 @@
 {
-  "name": "post-group",
-  "version": "1.0.0",
+  "name": "tezo",
   "private": true,
-  "description": "Local web app: open a browser for manual Facebook login, list joined groups, and auto-post content + images to selected groups using Playwright.",
+  "packageManager": "npm@10.0.0",
+  "workspaces": ["apps/*", "packages/*"],
   "scripts": {
-    "start": "node server.js"
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint"
   },
-  "dependencies": {
-    "bcrypt": "^6.0.0",
-    "connect-pg-simple": "^10.0.0",
-    "dotenv": "^17.4.2",
-    "express": "^4.21.0",
-    "express-session": "^1.19.0",
-    "multer": "^2.0.0",
-    "pg": "^8.22.0",
-    "playwright": "^1.48.0"
+  "devDependencies": {
+    "turbo": "^2.0.0",
+    "typescript": "^5.4.0"
   }
 }

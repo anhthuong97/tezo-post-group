@@ -1,0 +1,33 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: tezo
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: secret
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  api:
+    build: ./apps/api
+    ports:
+      - "3000:3000"
+    env_file: ./apps/api/.env
+    depends_on:
+      - postgres
+    volumes:
+      - ./apps/api/sessions:/app/sessions
+      - ./apps/api/uploads:/app/uploads
+
+  web:
+    build: ./apps/web
+    ports:
+      - "3001:3000"
+    env_file: ./apps/web/.env.local
+    depends_on:
+      - api
+
+volumes:
+  postgres_data:

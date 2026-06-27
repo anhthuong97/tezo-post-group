@@ -1,4 +1,8 @@
 node_modules/
-auth.json
-uploads/
-server.log
+dist/
+.next/
+.turbo/
+*.env
+!*.env.example
+apps/api/uploads/
+apps/api/sessions/
