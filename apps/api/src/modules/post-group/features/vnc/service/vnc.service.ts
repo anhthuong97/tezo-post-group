@@ -57,6 +57,11 @@ export class VncService implements OnModuleDestroy {
 
   private async startXvfb(s: VncUserSession): Promise<void> {
     if (s.xvfbProc && !s.xvfbProc.killed) return;
+    // Kill orphan processes từ lần chạy trước (server restart)
+    spawn('pkill', ['-f', `Xvfb :${s.display}`], { stdio: 'ignore' });
+    spawn('pkill', ['-f', `x11vnc.*:${s.vncPort}`], { stdio: 'ignore' });
+    spawn('pkill', ['-f', `websockify.*${s.wsPort}`], { stdio: 'ignore' });
+    await new Promise((r) => setTimeout(r, 800));
     s.xvfbProc = spawn('Xvfb', [`:${s.display}`, '-screen', '0', '1280x900x24'], {
       detached: false,
       stdio: 'ignore',
