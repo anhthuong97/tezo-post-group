@@ -10,6 +10,10 @@ fs.mkdirSync(SESSIONS_DIR, { recursive: true });
 
 const UNAUTHENTICATED_PATTERNS = ['/login', '/checkpoint', '/two_step_verification', '/recover', '/captcha'];
 
+// Đọc proxy từ env, ví dụ: PROXY_URL=socks5://localhost:1080
+const PROXY_URL = process.env.PROXY_URL || null;
+if (PROXY_URL) console.log(`[Browser] Using proxy: ${PROXY_URL}`);
+
 @Injectable()
 export class BrowserService implements OnModuleDestroy {
   private sharedBrowser: Browser | null = null;
@@ -60,6 +64,7 @@ export class BrowserService implements OnModuleDestroy {
         this.sharedBrowser = await chromium.launch({
           headless: true,
           args: ['--no-sandbox', '--disable-setuid-sandbox'],
+          ...(PROXY_URL ? { proxy: { server: PROXY_URL } } : {}),
         });
         console.log('[Browser] Chromium headless started');
       })().finally(() => { this.browserInitPromise = null; });
@@ -80,6 +85,7 @@ export class BrowserService implements OnModuleDestroy {
           headless: false,
           env: { ...process.env, DISPLAY: `:${display}` },
           args: ['--no-sandbox', '--disable-setuid-sandbox'],
+          ...(PROXY_URL ? { proxy: { server: PROXY_URL } } : {}),
         }).then((b) => { this.userBrowsers.set(userId, b); return b; })
           .finally(() => this.userBrowserInitPromises.delete(userId));
         this.userBrowserInitPromises.set(userId, p);
