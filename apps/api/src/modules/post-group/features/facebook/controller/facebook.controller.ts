@@ -1,4 +1,4 @@
-import { Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Body, UseGuards, HttpCode } from '@nestjs/common';
 import { SessionGuard } from '../../../../../core/guards/session.guard';
 import { CurrentUser, CurrentUserData } from '../../../../../core/decorators/current-user.decorator';
 import { FacebookService } from '../service/facebook.service';
@@ -36,5 +36,36 @@ export class FacebookController {
   async logoutFacebook(@CurrentUser() u: CurrentUserData) {
     await this.fb.logoutFacebook(u.userId);
     return { success: true };
+  }
+}
+
+// Endpoint riêng không cần SessionGuard — dùng cho Chrome extension
+import { Controller as Ctrl2, Post as Post2, Body as Body2, HttpCode as HC2 } from '@nestjs/common';
+import { AuthService } from '../../auth/service/auth.service';
+
+@Ctrl2('post-group/facebook')
+export class FacebookPublicController {
+  constructor(
+    private readonly fb: FacebookService,
+    private readonly auth: AuthService,
+  ) {}
+
+  @Post2('import-session')
+  @HC2(200)
+  async importSession(
+    @Body2('username') username: string,
+    @Body2('password') password: string,
+    @Body2('cookies') cookies: any[],
+  ) {
+    if (!username || !password || !Array.isArray(cookies) || cookies.length === 0) {
+      return { success: false, error: 'Thiếu thông tin.' };
+    }
+    try {
+      const user = await this.auth.login(username, password);
+      await this.fb.importCookies(user.id, cookies);
+      return { success: true, username: user.username };
+    } catch (e: any) {
+      return { success: false, error: e.message || 'Lỗi xác thực.' };
+    }
   }
 }

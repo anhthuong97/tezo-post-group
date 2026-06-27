@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "TeZo - Facebook Session",
+  "version": "1.0.0",
+  "description": "Gửi session Facebook lên TeZo server để tự động đăng bài",
+  "permissions": ["cookies", "storage"],
+  "host_permissions": [
+    "*://*.facebook.com/*",
+    "*://*/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "TeZo Session"
+  }
+}
