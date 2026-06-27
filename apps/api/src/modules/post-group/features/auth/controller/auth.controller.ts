@@ -39,6 +39,18 @@ export class AuthController {
     };
   }
 
+  @Post('register')
+  @HttpCode(200)
+  async register(@Body('username') username: string, @Body('password') password: string) {
+    if (!username?.trim() || !password?.trim()) return { success: false, error: 'Thiếu thông tin.' };
+    try {
+      const user = await this.auth.register(username.trim(), password);
+      return { success: true, user };
+    } catch (e: any) {
+      return { success: false, error: e.message?.includes('unique') ? 'Username đã tồn tại.' : e.message };
+    }
+  }
+
   // ─── User management ──────────────────────────────────────────────────────
 
   @Get('users')

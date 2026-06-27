@@ -7,6 +7,7 @@ export const authApi = {
   logout: ()                   => api.post(ENDPOINTS.auth.logout),
   me:     ()                   => api.get<MeResponse>(ENDPOINTS.auth.me),
 
+  register:      (username: string, password: string) => api.post(ENDPOINTS.auth.register, { username, password }),
   listUsers:     ()                                  => api.get(ENDPOINTS.auth.users),
   createUser:    (username: string)                  => api.post(ENDPOINTS.auth.users, { username }),
   toggleUser:    (id: number, isActive: boolean)     => api.patch(`${ENDPOINTS.auth.users}/${id}/toggle`, { isActive }),

@@ -13,6 +13,11 @@ export class AuthService {
     return this.repo.createEmployee(username, hash);
   }
 
+  async register(username: string, password: string): Promise<{ id: number; username: string }> {
+    const hash = await bcrypt.hash(password, 10);
+    return this.repo.createEmployee(username, hash);
+  }
+
   async listEmployees() {
     return this.repo.listEmployees();
   }
