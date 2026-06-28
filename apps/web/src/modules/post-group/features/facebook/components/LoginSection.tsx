@@ -26,6 +26,7 @@ export function LoginSection({
   const [showDropdown, setShowDropdown] = useState(false);
   const [loggingIn, setLoggingIn]       = useState(false);
   const [loginMsg, setLoginMsg]         = useState('');
+  const [actionMsg, setActionMsg]       = useState('');
 
   const activeId = currentIdentity?.id || 'personal';
 
@@ -50,13 +51,27 @@ export function LoginSection({
     setTimeout(() => { setLoggingIn(false); setLoginMsg(''); }, 12000);
   };
 
+  const showAction = (msg: string) => {
+    setActionMsg(msg);
+    setTimeout(() => setActionMsg(''), 5000);
+  };
+
   const handleShowBrowser = async () => {
-    try { await dispatch('show_browser'); } catch {}
+    try {
+      const res = await dispatch('show_browser');
+      if (res?.success) showAction('Đang mở cửa sổ Facebook trên máy tính...');
+      else showAction(res?.error || 'Agent chưa kết nối — hãy mở TeZo Agent trên máy tính.');
+    } catch (e: any) {
+      showAction(e.message || 'Lỗi kết nối');
+    }
   };
 
   const handleClearSession = async () => {
     if (!confirm('Xóa session Facebook? Agent sẽ cần đăng nhập lại.')) return;
-    try { await dispatch('clear_session'); } catch {}
+    try {
+      const res = await dispatch('clear_session');
+      showAction(res?.success ? 'Đã xóa session.' : (res?.error || 'Agent chưa kết nối.'));
+    } catch {}
   };
 
   const handleSync = async () => {
@@ -132,6 +147,9 @@ export function LoginSection({
 
           {loginMsg && (
             <p className="text-xs text-blue-700 bg-blue-50 rounded px-2 py-1.5">{loginMsg}</p>
+          )}
+          {actionMsg && (
+            <p className="text-xs text-gray-600 bg-gray-50 rounded px-2 py-1.5">{actionMsg}</p>
           )}
 
           {/* Identity selector */}
