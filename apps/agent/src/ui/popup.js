@@ -115,6 +115,10 @@ $('btnLoginFb').addEventListener('click', async () => {
   }
 });
 
+$('btnShowBrowser').addEventListener('click', () => {
+  window.tezo.showBrowser();
+});
+
 $('btnClearSession').addEventListener('click', async () => {
   await window.tezo.clearSession();
   setFbStatus(false);

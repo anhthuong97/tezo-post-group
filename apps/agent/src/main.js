@@ -42,6 +42,10 @@ ipcMain.handle('minimize', () => {
   if (popup && !popup.isDestroyed()) popup.hide();
 });
 
+ipcMain.handle('show-browser', () => {
+  showBrowser();
+});
+
 function showBrowser() {
   if (hidden && !hidden.isDestroyed()) {
     hidden.setTitle('Đăng nhập Facebook — TeZo Agent');

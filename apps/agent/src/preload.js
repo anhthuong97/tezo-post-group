@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('tezo', {
   stopAgent:    ()       => ipcRenderer.invoke('stop-agent'),
   clearSession: ()       => ipcRenderer.invoke('clear-session'),
   minimize:       ()     => ipcRenderer.invoke('minimize'),
+  showBrowser:    ()     => ipcRenderer.invoke('show-browser'),
   loginFacebook:  ()     => ipcRenderer.invoke('login-facebook'),
   onStatus:  (cb) => ipcRenderer.on('status-update', (_, data) => cb(data)),
   onLog:     (cb) => ipcRenderer.on('log-message',   (_, msg)  => cb(msg)),
