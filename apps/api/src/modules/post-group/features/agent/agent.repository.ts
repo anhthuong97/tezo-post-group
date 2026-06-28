@@ -94,33 +94,78 @@ export class AgentRepository {
     return rows[0] || null;
   }
 
-  // ─── Groups ───────────────────────────────────────────────
-  async saveGroups(userId: number, groups: Array<{ id: string; name: string; url: string; meta?: string }>): Promise<void> {
-    if (!groups.length) return;
-    for (const g of groups) {
+  // ─── Identities ───────────────────────────────────────────
+  async saveIdentities(userId: number, identities: Array<{ id: string; name: string; type: string; href?: string }>): Promise<void> {
+    for (const item of identities) {
       await this.pool.query(
-        `INSERT INTO pg_groups (user_id, group_id, name, url, meta, synced_at)
+        `INSERT INTO pg_identities (user_id, identity_id, name, type, href, synced_at)
          VALUES ($1, $2, $3, $4, $5, NOW())
-         ON CONFLICT (user_id, group_id) DO UPDATE SET name=$3, url=$4, meta=$5, synced_at=NOW()`,
-        [userId, g.id, g.name, g.url, g.meta || null],
+         ON CONFLICT (user_id, identity_id) DO UPDATE
+           SET name=$3, type=$4, href=$5, synced_at=NOW()`,
+        [userId, item.id, item.name, item.type, item.href || null],
       );
     }
   }
 
-  async getGroups(userId: number): Promise<any[]> {
+  async setActiveIdentity(userId: number, identityId: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE pg_identities SET is_active = (identity_id = $2) WHERE user_id = $1`,
+      [userId, identityId],
+    );
+  }
+
+  async getIdentities(userId: number): Promise<any[]> {
     const { rows } = await this.pool.query(
-      `SELECT group_id AS id, name, url, meta, synced_at
-       FROM pg_groups WHERE user_id = $1
-       ORDER BY name ASC`,
+      `SELECT identity_id AS id, name, type, href, is_active
+       FROM pg_identities WHERE user_id = $1
+       ORDER BY type ASC, name ASC`,
       [userId],
     );
     return rows;
   }
 
-  async getSyncedAt(userId: number): Promise<Date | null> {
+  async getActiveIdentity(userId: number): Promise<any | null> {
     const { rows } = await this.pool.query(
-      `SELECT MAX(synced_at) AS synced_at FROM pg_groups WHERE user_id = $1`,
+      `SELECT identity_id AS id, name, type, href
+       FROM pg_identities WHERE user_id = $1 AND is_active = true LIMIT 1`,
       [userId],
+    );
+    return rows[0] || null;
+  }
+
+  // ─── Groups ───────────────────────────────────────────────
+  async saveGroups(
+    userId: number,
+    identityId: string,
+    groups: Array<{ id: string; name: string; url: string; meta?: string }>,
+  ): Promise<void> {
+    if (!groups.length) return;
+    for (const g of groups) {
+      await this.pool.query(
+        `INSERT INTO pg_groups (user_id, identity_id, group_id, name, url, meta, synced_at)
+         VALUES ($1, $2, $3, $4, $5, $6, NOW())
+         ON CONFLICT (user_id, identity_id, group_id)
+           DO UPDATE SET name=$4, url=$5, meta=$6, synced_at=NOW()`,
+        [userId, identityId, g.id, g.name, g.url, g.meta || null],
+      );
+    }
+  }
+
+  async getGroups(userId: number, identityId = 'personal'): Promise<any[]> {
+    const { rows } = await this.pool.query(
+      `SELECT group_id AS id, name, url, meta, synced_at
+       FROM pg_groups WHERE user_id = $1 AND identity_id = $2
+       ORDER BY name ASC`,
+      [userId, identityId],
+    );
+    return rows;
+  }
+
+  async getSyncedAt(userId: number, identityId = 'personal'): Promise<Date | null> {
+    const { rows } = await this.pool.query(
+      `SELECT MAX(synced_at) AS synced_at FROM pg_groups
+       WHERE user_id = $1 AND identity_id = $2`,
+      [userId, identityId],
     );
     return rows[0]?.synced_at || null;
   }

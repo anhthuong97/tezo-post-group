@@ -1,13 +1,15 @@
 const axios = require('axios');
-const { fetchGroups, runPostTask } = require('./facebook');
+const { fetchGroupsForIdentity, getIdentities } = require('./facebook');
 
-let settings       = null;
-let token          = null;
-let pollTimer      = null;
-let heartbeatTimer = null;
-let running        = false;
-let statusInfo     = { connected: false, error: null, currentTask: null };
-let onStatusChange = null;
+let settings          = null;
+let token             = null;
+let pollTimer         = null;
+let heartbeatTimer    = null;
+let running           = false;
+let cachedIdentities  = [];
+let currentIdentityId = 'personal';
+let statusInfo        = { connected: false, error: null, currentTask: null, identities: [], currentIdentityId: 'personal' };
+let onStatusChange    = null;
 
 function setStatus(patch) {
   Object.assign(statusInfo, patch);
@@ -39,6 +41,38 @@ async function sendHeartbeat() {
   try { await api('post', '/heartbeat'); } catch {}
 }
 
+// Lấy identities và báo về VPS
+async function syncIdentities(onLog) {
+  try {
+    const identities = await getIdentities(onLog);
+    cachedIdentities = identities;
+    setStatus({ identities, currentIdentityId });
+
+    await api('post', '/identities', {
+      identities,
+      activeIdentityId: currentIdentityId,
+    });
+  } catch (err) {
+    onLog?.('Không thể sync tư cách: ' + err.message);
+  }
+}
+
+// Sau khi đăng nhập FB: sync identities + auto fetch groups
+async function triggerAfterLogin(onLog) {
+  if (!token) return;
+  try {
+    await syncIdentities(onLog);
+    // Tự tạo task fetch_groups cho identity hiện tại
+    await api('post', '/dispatch', {
+      type: 'fetch_groups',
+      payload: { identityId: currentIdentityId },
+    });
+    onLog?.('Đang tải nhóm tự động...');
+  } catch (err) {
+    onLog?.('Lỗi sau đăng nhập: ' + err.message);
+  }
+}
+
 async function pollAndExecute() {
   if (running) return;
 
@@ -54,7 +88,6 @@ async function pollAndExecute() {
       const onLog = async (msg) => {
         logs.push(msg);
         setStatus({ currentTask: { id: task.id, type: task.type, lastLog: msg } });
-        // Gửi progress lên VPS để web thấy realtime
         api('post', `/tasks/${task.id}/progress`, { logs }).catch(() => {});
       };
 
@@ -64,16 +97,32 @@ async function pollAndExecute() {
         let result;
 
         if (task.type === 'post_groups') {
+          const { runPostTask } = require('./facebook');
           const onNeedLogin = () => setStatus({ needLogin: true });
           result = await runPostTask(task, onLog, onNeedLogin);
 
         } else if (task.type === 'fetch_groups') {
-          const fetchResult = await fetchGroups(onLog);
+          const identityId   = task.payload?.identityId || currentIdentityId;
+          const identity     = cachedIdentities.find(i => i.id === identityId);
+          const fetchResult  = await fetchGroupsForIdentity(identityId, identity?.href, onLog);
           if (!fetchResult.error && fetchResult.groups.length > 0) {
-            await api('post', '/groups', { groups: fetchResult.groups });
-            onLog(`Đã đồng bộ ${fetchResult.groups.length} nhóm lên server.`);
+            await api('post', '/groups', { groups: fetchResult.groups, identityId });
+            onLog(`Đã đồng bộ ${fetchResult.groups.length} nhóm (${identity?.name || identityId}).`);
           }
           result = fetchResult;
+
+        } else if (task.type === 'switch_identity') {
+          const { identityId } = task.payload || {};
+          if (identityId) {
+            currentIdentityId = identityId;
+            setStatus({ currentIdentityId });
+            await api('post', '/identities', { identities: cachedIdentities, activeIdentityId: identityId });
+            onLog(`Đã chuyển sang tư cách: ${identityId}`);
+            // Auto fetch groups cho identity mới
+            await api('post', '/dispatch', { type: 'fetch_groups', payload: { identityId } });
+            onLog('Đang tải nhóm cho tư cách mới...');
+          }
+          result = { ok: true };
 
         } else {
           result = { error: `Task type không hỗ trợ: ${task.type}` };
@@ -130,4 +179,4 @@ function stop() {
   setStatus({ connected: false, error: null, currentTask: null });
 }
 
-module.exports = { start, stop, getStatus };
+module.exports = { start, stop, getStatus, triggerAfterLogin };

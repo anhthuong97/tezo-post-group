@@ -38,7 +38,14 @@ export class AgentService {
   getTaskById(taskId: number)                            { return this.repo.getTaskById(taskId); }
   getLatestTaskByType(userId: number, type: string)      { return this.repo.getLatestTaskByType(userId, type); }
 
-  saveGroups(userId: number, groups: any[])  { return this.repo.saveGroups(userId, groups); }
-  getGroups(userId: number)                  { return this.repo.getGroups(userId); }
-  getGroupsSyncedAt(userId: number)          { return this.repo.getSyncedAt(userId); }
+  // Identities
+  saveIdentities(userId: number, identities: any[])      { return this.repo.saveIdentities(userId, identities); }
+  setActiveIdentity(userId: number, identityId: string)  { return this.repo.setActiveIdentity(userId, identityId); }
+  getIdentities(userId: number)                          { return this.repo.getIdentities(userId); }
+  getActiveIdentity(userId: number)                      { return this.repo.getActiveIdentity(userId); }
+
+  // Groups
+  saveGroups(userId: number, identityId: string, groups: any[]) { return this.repo.saveGroups(userId, identityId, groups); }
+  getGroups(userId: number, identityId = 'personal')            { return this.repo.getGroups(userId, identityId); }
+  getGroupsSyncedAt(userId: number, identityId = 'personal')    { return this.repo.getSyncedAt(userId, identityId); }
 }

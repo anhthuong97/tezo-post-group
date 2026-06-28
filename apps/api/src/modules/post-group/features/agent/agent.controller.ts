@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Param, Body,
+  Controller, Get, Post, Param, Body, Query,
   Headers, ParseIntPipe, HttpCode, UseGuards,
   Injectable, CanActivate, ExecutionContext, UnauthorizedException,
 } from '@nestjs/common';
@@ -84,16 +84,37 @@ export class AgentController {
     return { ok: true };
   }
 
+  // Agent báo danh sách tư cách về VPS
+  @Post('identities')
+  @HttpCode(200)
+  async receiveIdentities(
+    @Headers('authorization') auth: string,
+    @Body('identities') identities: any[],
+    @Body('activeIdentityId') activeIdentityId: string,
+  ) {
+    const token = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
+    if (!token) return { error: 'Unauthorized' };
+    const payload = this.svc.verifyToken(token);
+    await this.svc.saveIdentities(payload.userId, identities || []);
+    if (activeIdentityId) {
+      await this.svc.setActiveIdentity(payload.userId, activeIdentityId);
+    }
+    return { ok: true };
+  }
+
+  // Agent báo nhóm về VPS (kèm identityId)
   @Post('groups')
   @HttpCode(200)
   async receiveGroups(
     @Headers('authorization') auth: string,
     @Body('groups') groups: any[],
+    @Body('identityId') identityId: string,
   ) {
     const token = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
     if (!token) return { error: 'Unauthorized' };
     const payload = this.svc.verifyToken(token);
-    await this.svc.saveGroups(payload.userId, groups || []);
+    const identity = identityId || 'personal';
+    await this.svc.saveGroups(payload.userId, identity, groups || []);
     return { ok: true, saved: (groups || []).length };
   }
 
@@ -102,9 +123,31 @@ export class AgentController {
   @Get('status')
   @UseGuards(SessionGuard)
   async getStatus(@CurrentUser() u: CurrentUserData) {
-    const online    = await this.svc.isOnline(u.userId);
-    const syncedAt  = await this.svc.getGroupsSyncedAt(u.userId);
-    return { online, syncedAt };
+    const online         = await this.svc.isOnline(u.userId);
+    const activeIdentity = await this.svc.getActiveIdentity(u.userId);
+    const identityId     = activeIdentity?.id || 'personal';
+    const syncedAt       = await this.svc.getGroupsSyncedAt(u.userId, identityId);
+    return { online, syncedAt, currentIdentity: activeIdentity };
+  }
+
+  @Get('identities')
+  @UseGuards(SessionGuard)
+  async getIdentities(@CurrentUser() u: CurrentUserData) {
+    const identities = await this.svc.getIdentities(u.userId);
+    return { identities };
+  }
+
+  @Post('switch-identity')
+  @UseGuards(SessionGuard)
+  @HttpCode(200)
+  async switchIdentity(
+    @CurrentUser() u: CurrentUserData,
+    @Body('identityId') identityId: string,
+  ) {
+    const online = await this.svc.isOnline(u.userId);
+    if (!online) return { success: false, error: 'Agent chưa kết nối.' };
+    const taskId = await this.svc.createTask(u.userId, 'switch_identity', { identityId });
+    return { success: true, taskId };
   }
 
   @Get('history')

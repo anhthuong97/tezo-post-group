@@ -13,13 +13,13 @@ export function useGroups() {
   const [loading, setLoading]           = useState(false);
   const [error, setError]               = useState('');
 
-  const loadGroups = useCallback(async (identity = '', onDone?: () => void) => {
+  const loadGroups = useCallback(async (identityId = 'personal', onDone?: () => void) => {
     setLoading(true); setError('');
     try {
-      const res = await groupsApi.list();
+      const res = await groupsApi.list(identityId);
       if (res.success) {
         setGroups(res.groups || []);
-        setGroupsIdentity(identity);
+        setGroupsIdentity(identityId);
         onDone?.();
       } else {
         setError(res.error || 'Không tải được danh sách nhóm');

@@ -1,16 +1,30 @@
 const $ = (id) => document.getElementById(id);
 
-const dot         = $('dot');
-const statusText  = $('statusText');
-const logBox      = $('logBox');
-const taskInfo    = $('taskInfo');
-const errorMsg    = $('errorMsg');
-const btnConnect  = $('btnConnect');
-const btnDisc     = $('btnDisconnect');
+const dot          = $('dot');
+const statusText   = $('statusText');
+const logBox       = $('logBox');
+const taskInfo     = $('taskInfo');
+const errorMsg     = $('errorMsg');
+const btnConnect   = $('btnConnect');
+const btnDisc      = $('btnDisconnect');
+const fbDot        = $('fbDot');
+const fbStatusText = $('fbStatusText');
 
 function addLog(msg) {
   logBox.textContent += '\n' + msg;
   logBox.scrollTop = logBox.scrollHeight;
+}
+
+function setFbStatus(loggedIn) {
+  if (loggedIn) {
+    fbDot.className = 'dot-sm ok';
+    fbStatusText.textContent = 'Đã đăng nhập Facebook';
+    $('btnLoginFb').textContent = 'Đăng nhập lại';
+  } else {
+    fbDot.className = 'dot-sm no';
+    fbStatusText.textContent = 'Chưa đăng nhập';
+    $('btnLoginFb').textContent = 'Đăng nhập Facebook';
+  }
 }
 
 function applyStatus(s) {
@@ -37,8 +51,11 @@ function applyStatus(s) {
     taskInfo.className = 'task-info';
   }
 
+  if (s.fbLoggedIn !== undefined) setFbStatus(s.fbLoggedIn);
+
   if (s.needLogin) {
-    addLog('⚠️ Cần đăng nhập Facebook — cửa sổ Chrome đã mở, hãy đăng nhập!');
+    setFbStatus(false);
+    addLog('⚠️ Cần đăng nhập Facebook — nhấn nút "Đăng nhập Facebook" bên dưới!');
   }
 }
 
@@ -50,8 +67,9 @@ window.tezo.getSettings().then((s) => {
 
 window.tezo.getStatus().then(applyStatus);
 
-// ─── Live status từ main process ──────────────────────────────────────────
+// ─── Live updates từ main process ─────────────────────────────────────────
 window.tezo.onStatus(applyStatus);
+window.tezo.onLog((msg) => addLog(msg));
 
 // ─── Buttons ──────────────────────────────────────────────────────────────
 btnConnect.addEventListener('click', async () => {
@@ -80,9 +98,27 @@ btnDisc.addEventListener('click', async () => {
   addLog('Đã ngắt kết nối.');
 });
 
+$('btnLoginFb').addEventListener('click', async () => {
+  const btn = $('btnLoginFb');
+  btn.disabled = true;
+  fbDot.className = 'dot-sm yellow';
+  fbStatusText.textContent = 'Đang mở trình duyệt...';
+
+  const res = await window.tezo.loginFacebook();
+  btn.disabled = false;
+  if (res?.ok) {
+    setFbStatus(true);
+  } else {
+    fbDot.className = 'dot-sm no';
+    fbStatusText.textContent = res?.error || 'Lỗi đăng nhập';
+    btn.textContent = 'Đăng nhập Facebook';
+  }
+});
+
 $('btnClearSession').addEventListener('click', async () => {
   await window.tezo.clearSession();
-  addLog('Đã xóa session Facebook. Lần sau sẽ cần đăng nhập lại.');
+  setFbStatus(false);
+  addLog('Đã xóa session Facebook. Vui lòng đăng nhập lại.');
 });
 
 $('btnMinimize').addEventListener('click', () => {

@@ -73,17 +73,46 @@ CREATE TABLE IF NOT EXISTS pg_agent_tasks (
 
 CREATE INDEX IF NOT EXISTS idx_pg_agent_tasks_user_status ON pg_agent_tasks (user_id, status);
 
--- ── 6. Groups (đồng bộ từ Agent) ───────────────────────────
-CREATE TABLE IF NOT EXISTS pg_groups (
-  id        SERIAL       PRIMARY KEY,
-  user_id   INTEGER      NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
-  group_id  VARCHAR(200) NOT NULL,
-  name      VARCHAR(500) NOT NULL,
-  url       VARCHAR(500) NOT NULL,
-  meta      VARCHAR(500),
-  synced_at TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
-  UNIQUE (user_id, group_id)
+-- ── 6. Identities (tư cách FB đồng bộ từ Agent) ───────────
+CREATE TABLE IF NOT EXISTS pg_identities (
+  id          SERIAL       PRIMARY KEY,
+  user_id     INTEGER      NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  identity_id VARCHAR(200) NOT NULL,
+  name        VARCHAR(500) NOT NULL,
+  type        VARCHAR(50)  NOT NULL DEFAULT 'personal',
+  href        VARCHAR(500),
+  is_active   BOOLEAN      NOT NULL DEFAULT false,
+  synced_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+  UNIQUE (user_id, identity_id)
 );
+
+-- ── 7. Groups (đồng bộ từ Agent, theo từng tư cách) ────────
+CREATE TABLE IF NOT EXISTS pg_groups (
+  id          SERIAL       PRIMARY KEY,
+  user_id     INTEGER      NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  identity_id VARCHAR(200) NOT NULL DEFAULT 'personal',
+  group_id    VARCHAR(200) NOT NULL,
+  name        VARCHAR(500) NOT NULL,
+  url         VARCHAR(500) NOT NULL,
+  meta        VARCHAR(500),
+  synced_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+);
+
+-- Thêm identity_id nếu bảng đã tồn tại từ trước
+ALTER TABLE pg_groups ADD COLUMN IF NOT EXISTS identity_id VARCHAR(200) NOT NULL DEFAULT 'personal';
+
+-- Đổi unique constraint sang (user_id, identity_id, group_id)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.table_constraints
+    WHERE constraint_name = 'pg_groups_user_identity_group'
+  ) THEN
+    ALTER TABLE pg_groups DROP CONSTRAINT IF EXISTS pg_groups_user_id_group_id_key;
+    ALTER TABLE pg_groups ADD CONSTRAINT pg_groups_user_identity_group
+      UNIQUE (user_id, identity_id, group_id);
+  END IF;
+END $$;
 
 CREATE INDEX IF NOT EXISTS idx_pg_groups_user ON pg_groups (user_id);
 

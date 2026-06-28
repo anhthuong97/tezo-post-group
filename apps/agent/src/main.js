@@ -2,7 +2,7 @@ const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, shell } = require(
 const path   = require('path');
 const agent  = require('./agent');
 const { getSettings, saveSettings } = require('./store');
-const { clearSession } = require('./facebook');
+const { clearSession, loginFacebook } = require('./facebook');
 
 // Bật CDP để Playwright kết nối vào Chromium của Electron
 app.commandLine.appendSwitch('remote-debugging-port', '9222');
@@ -40,6 +40,16 @@ ipcMain.handle('stop-agent', () => {
 
 ipcMain.handle('minimize', () => {
   if (popup && !popup.isDestroyed()) popup.hide();
+});
+
+ipcMain.handle('login-facebook', async () => {
+  const onLog = (msg) => popup?.webContents.send('log-message', msg);
+  const result = await loginFacebook(onLog);
+  if (result.ok) {
+    // Sau đăng nhập: lấy identities + auto fetch groups
+    agent.triggerAfterLogin(onLog).catch(() => {});
+  }
+  return result;
 });
 
 // ─── Tray ─────────────────────────────────────────────────────────────────

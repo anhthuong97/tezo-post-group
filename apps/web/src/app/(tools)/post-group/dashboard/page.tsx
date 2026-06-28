@@ -44,21 +44,26 @@ export default function DashboardPage() {
 
   usePolling(ps.pollLogs, 3000, ps.isPosting);
 
-  // Tải nhóm từ DB khi mở trang
+  // Tải nhóm theo identity hiện tại
   useEffect(() => {
-    groups.loadGroups();
-  }, []);
+    const id = agent.currentIdentity?.id || 'personal';
+    groups.loadGroups(id);
+  }, [agent.currentIdentity?.id]);
 
   const handlePostStarted = () => {
     setStatusOpen(true);
     ps.pollStatus();
   };
 
-  const handleSyncGroups = () => {
-    // Reload nhóm sau khi agent sync xong (delay để agent có thời gian fetch)
-    setTimeout(() => groups.loadGroups(), 5000);
-    setTimeout(() => groups.loadGroups(), 12000);
-    setTimeout(() => groups.loadGroups(), 20000);
+  const handleSyncGroups = (identityId: string) => {
+    setTimeout(() => groups.loadGroups(identityId), 5000);
+    setTimeout(() => groups.loadGroups(identityId), 12000);
+    setTimeout(() => groups.loadGroups(identityId), 20000);
+  };
+
+  const handleSwitchIdentity = (identityId: string) => {
+    agent.switchIdentity(identityId);
+    groups.loadGroups(identityId);
   };
 
   return (
@@ -98,7 +103,11 @@ export default function DashboardPage() {
             <LoginSection
               agentOnline={agent.agentOnline}
               syncedAt={agent.syncedAt}
+              identities={agent.identities}
+              currentIdentity={agent.currentIdentity}
+              switching={agent.switching}
               onSyncGroups={handleSyncGroups}
+              onSwitchIdentity={handleSwitchIdentity}
             />
           </div>
           <div className="flex-1 overflow-hidden">
