@@ -96,7 +96,15 @@ async function pollAndExecute() {
 
         let result;
 
-        if (task.type === 'post_groups') {
+        if (task.type === 'login_facebook') {
+          const { loginFacebook } = require('./facebook');
+          const loginResult = await loginFacebook(onLog);
+          if (loginResult.ok) {
+            await triggerAfterLogin(onLog);
+          }
+          result = loginResult;
+
+        } else if (task.type === 'post_groups') {
           const { runPostTask } = require('./facebook');
           const onNeedLogin = () => setStatus({ needLogin: true });
           result = await runPostTask(task, onLog, onNeedLogin);
