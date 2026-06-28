@@ -83,8 +83,12 @@ CREATE INDEX IF NOT EXISTS idx_agent_tasks_user_status ON agent_tasks (user_id, 
 DO $$
 BEGIN
   IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'admin') THEN
+    -- Quyền trên tất cả table/sequence hiện tại
     GRANT ALL PRIVILEGES ON ALL TABLES    IN SCHEMA public TO admin;
     GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO admin;
+    -- Tự động cấp quyền cho table/sequence tạo mới trong tương lai
+    EXECUTE 'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES    TO admin';
+    EXECUTE 'ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO admin';
   END IF;
 END
 $$;
