@@ -10,5 +10,4 @@ export const ENDPOINTS = {
   product:  { fetch: `${API_BASE}/product/fetch` },
   settings: { apiKeys: `${API_BASE}/settings/api-keys`, priority: `${API_BASE}/settings/ai-priority` },
   log:      { get: `${API_BASE}/log`, clear: `${API_BASE}/log` },
-  vnc:      { status: `${API_BASE}/vnc/status`, loginStart: `${API_BASE}/vnc/login/start`, loginStop: `${API_BASE}/vnc/login/stop`, monitorStart: `${API_BASE}/vnc/monitor/start`, monitorStop: `${API_BASE}/vnc/monitor/stop`, monitorTouch: `${API_BASE}/vnc/monitor/touch` },
 } as const;

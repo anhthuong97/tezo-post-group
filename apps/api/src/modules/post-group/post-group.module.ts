@@ -8,7 +8,6 @@ import { AiModule } from './features/ai/ai.module';
 import { ProductModule } from './features/product/product.module';
 import { SettingsModule } from './features/settings/settings.module';
 import { LogModule } from './features/log/log.module';
-import { VncModule } from './features/vnc/vnc.module';
 import { AgentModule } from './features/agent/agent.module';
 
 @Module({
@@ -22,7 +21,6 @@ import { AgentModule } from './features/agent/agent.module';
     ProductModule,
     SettingsModule,
     LogModule,
-    VncModule,
     AgentModule,
   ],
 })

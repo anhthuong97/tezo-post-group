@@ -18,7 +18,6 @@ export interface PostStatusItem {
 export interface UserSession {
   context: BrowserContext | null;
   page: Page | null;
-  contextDisplay: number | null; // display number Xvfb dùng khi tạo context, null = headless
   loggedIn: boolean;
   selectedIdentity: string | null; // tư cách user đang chọn trong tool
   activeIdentity: string | null;   // tư cách browser đang thực sự dùng (null = chưa biết)
@@ -43,7 +42,6 @@ export class UserSessionStore {
       this.sessions.set(userId, {
         context: null,
         page: null,
-        contextDisplay: null,
         loggedIn: false,
         selectedIdentity: null,
         activeIdentity: null,

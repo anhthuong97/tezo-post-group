@@ -14,7 +14,6 @@ import { DevLog } from '@/shared/components/DevLog';
 import { Button } from '@/shared/components/Button';
 
 import { useFacebookLogin } from '@/modules/post-group/features/facebook/hooks/useFacebookLogin';
-import { useVnc } from '@/modules/post-group/features/vnc/hooks/useVnc';
 import { useGroups } from '@/modules/post-group/features/groups/hooks/useGroups';
 import { usePost } from '@/modules/post-group/features/post/hooks/usePost';
 import { usePostStatus } from '@/modules/post-group/features/post/hooks/usePostStatus';
@@ -22,9 +21,9 @@ import { usePolling } from '@/shared/hooks/usePolling';
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [username, setUsername]     = useState('');
-  const [apiKeyOpen, setApiKeyOpen]   = useState(false);
-  const [statusOpen, setStatusOpen]   = useState(false);
+  const [username, setUsername]         = useState('');
+  const [apiKeyOpen, setApiKeyOpen]     = useState(false);
+  const [statusOpen, setStatusOpen]     = useState(false);
   const [userMgmtOpen, setUserMgmtOpen] = useState(false);
 
   useEffect(() => {
@@ -39,7 +38,6 @@ export default function DashboardPage() {
   };
 
   const fb     = useFacebookLogin(() => {});
-  const vnc    = useVnc();
   const groups = useGroups();
   const post   = usePost();
   const ps     = usePostStatus();
@@ -47,57 +45,32 @@ export default function DashboardPage() {
   usePolling(ps.pollLogs, 3000, fb.mode === 'logged-in');
   useEffect(() => { fb.checkSession(); }, []);
 
-  // initDoneRef: tránh khởi tạo nhiều lần khi các dependency thay đổi
   const initDoneRef = useRef(false);
-
   useEffect(() => {
     if (fb.mode !== 'logged-in') { initDoneRef.current = false; return; }
     if (initDoneRef.current) return;
 
     const identityCached = !!fb.currentIdentity;
-    const groupsCurrent  =
-      groups.groupsIdentity === fb.currentIdentity && groups.groups.length > 0;
+    const groupsCurrent  = groups.groupsIdentity === fb.currentIdentity && groups.groups.length > 0;
 
-    // Cả hai đều cache & khớp → không cần Playwright
     if (identityCached && groupsCurrent) { initDoneRef.current = true; return; }
-
     initDoneRef.current = true;
 
     if (!identityCached) {
-      // Playwright load identity, rồi dùng tên trả về để load groups ngay (không đợi re-render)
-      fb.loadIdentities().then((name) => {
-        if (name) groups.loadGroups(name);
-      });
+      fb.loadIdentities().then((name) => { if (name) groups.loadGroups(name); });
     } else {
-      // Identity có cache, groups chưa đúng tư cách → Playwright load groups
       groups.loadGroups(fb.currentIdentity);
     }
-  }, [fb.mode, fb.currentIdentity]); // currentIdentity trong deps xử lý edge case hydrate muộn
+  }, [fb.mode, fb.currentIdentity]);
 
   const handlePostStarted = () => {
     setStatusOpen(true);
     ps.pollStatus();
   };
 
-  // Khi click "Đăng nhập Facebook": nếu Linux → khởi động VNC trước
-  const handleOpenLogin = async () => {
-    if (vnc.isLinux) {
-      const ok = await vnc.startLoginVnc();
-      if (!ok) return; // VNC lỗi — thông báo đã hiển thị
-    }
-    await fb.openLogin();
-  };
-
-  // Sau khi login xong, sync VNC state
-  useEffect(() => {
-    if (fb.mode === 'logged-in' && vnc.phase === 'login') {
-      vnc.stopLoginVnc();
-    }
-  }, [fb.mode, vnc.phase, vnc.stopLoginVnc]);
-
   const handleSwitchIdentity = async (name: string) => {
     if (name === fb.currentIdentity) return;
-    groups.clearGroups(); // Clear ngay để hiện loading ở GroupList
+    groups.clearGroups();
     await fb.switchIdentity(name);
     groups.loadGroups(name);
   };
@@ -134,8 +107,6 @@ export default function DashboardPage() {
 
       {/* ── Body ── */}
       <div className="flex-1 flex overflow-hidden">
-
-        {/* LEFT */}
         <div className="flex flex-col w-[380px] shrink-0 border-r border-gray-200 bg-white overflow-hidden">
           <div className="shrink-0 border-b border-gray-100 px-4 py-3">
             <LoginSection
@@ -147,21 +118,12 @@ export default function DashboardPage() {
               identitySwitching={fb.identitySwitching}
               currentIdentity={fb.currentIdentity}
               switchable={fb.switchable}
-              onOpen={handleOpenLogin}
-              onLogout={async () => {
-                await fb.logoutFacebook();
-                groups.clearGroups();
-              }}
+              onOpen={fb.openLogin}
+              onLogout={async () => { await fb.logoutFacebook(); groups.clearGroups(); }}
               onSwitchIdentity={handleSwitchIdentity}
               onReloadIdentity={fb.loadIdentities}
-              vncLinux={vnc.isLinux}
-              vncPhase={vnc.phase}
-              vncError={vnc.error}
-              onStartMonitor={vnc.startMonitor}
-              onStopMonitor={vnc.stopMonitor}
             />
           </div>
-
           <div className="flex-1 overflow-hidden">
             <GroupList
               groups={groups.groups}
@@ -178,7 +140,6 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* RIGHT */}
         <div className="flex-1 overflow-y-auto p-4">
           <PostComposer
             content={post.content}
@@ -204,13 +165,8 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      <PostStatusModal
-        open={statusOpen}
-        onClose={() => setStatusOpen(false)}
-        items={ps.status}
-        onCancel={ps.cancel}
-        onCancelAll={ps.cancelAll}
-      />
+      <PostStatusModal open={statusOpen} onClose={() => setStatusOpen(false)}
+        items={ps.status} onCancel={ps.cancel} onCancelAll={ps.cancelAll} />
 
       {!statusOpen && (
         <PostProgressDock items={ps.status} onOpen={() => setStatusOpen(true)} />
