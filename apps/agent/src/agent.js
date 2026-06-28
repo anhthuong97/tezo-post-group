@@ -144,8 +144,9 @@ async function pollAndExecute() {
             const identity = cachedIdentities.find(i => i.id === identityId);
 
             // Thực hiện chuyển tư cách trên browser
+            const personalIdentity = cachedIdentities.find(i => i.id === 'personal');
             const switchResult = await switchIdentityOnBrowser(
-              identityId, identity?.name, identity?.href, onLog
+              identityId, identity?.name, identity?.href, personalIdentity?.name, onLog
             );
 
             if (!switchResult?.error) {

@@ -236,86 +236,29 @@ async function navigateFbWin(url, onLog) {
 async function getIdentities(onLog) {
   onLog?.('Đang lấy danh sách tư cách...');
   try {
-    // Bước 1: Tên cá nhân — mở avatar dropdown, đọc tên từ dialog (theo logic cũ)
-    const wcHome = await navigateFbWin('https://www.facebook.com/', onLog);
-    if (isLoggedOut(wcHome.getURL())) {
+    // Bước 1: Tên cá nhân — navigate /me → redirect → h1 (đã xác nhận chính xác 100%)
+    const wcMe = await navigateFbWin('https://www.facebook.com/me', onLog);
+    if (isLoggedOut(wcMe.getURL())) {
       onLog?.('Chưa đăng nhập Facebook.');
       return [];
     }
 
-    // Click nút avatar trong banner để mở dropdown
-    const personalName = await wcHome.executeJavaScript(`
+    const personalName = await wcMe.executeJavaScript(`
       (function() {
-        // Tìm nút avatar trong banner (aria-haspopup + có svg image hoặc img)
-        var banner = document.querySelector('[role="banner"]');
-        if (!banner) return null;
-        var candidates = banner.querySelectorAll('[aria-haspopup]');
-        var btn = null;
-        for (var i = 0; i < candidates.length; i++) {
-          if (candidates[i].querySelector('svg image, img[src]')) { btn = candidates[i]; }
-        }
-        if (!btn) return null;
-
-        // Ghi nhận dialogs hiện có trước khi click
-        var before = Array.from(document.querySelectorAll('[role="dialog"]'))
-          .map(function(d) { return d.getAttribute('aria-label') || ''; });
-        var beforeSet = new Set(before);
-
-        btn.click();
-        return beforeSet.size; // Trả về số dialogs trước (dùng để wait bên ngoài)
-      })()
-    `);
-
-    // Chờ dialog mới xuất hiện
-    await new Promise(r => setTimeout(r, 1500));
-
-    // Đọc tên tư cách hiện tại từ dialog mới
-    const currentName = await wcHome.executeJavaScript(`
-      (function() {
-        var dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
-        if (dialogs.length === 0) return null;
-        var d = dialogs[dialogs.length - 1];
-
-        // Cách 1: link /me/ trong dialog
-        var meLinks = d.querySelectorAll('a[href*="/me/"]');
-        for (var i = 0; i < meLinks.length; i++) {
-          var a = meLinks[i];
-          if (a.closest('[aria-hidden="true"]')) continue;
-          var span = a.querySelector('span[dir="auto"]');
-          if (span && span.innerText.trim()) return span.innerText.trim();
-        }
-
-        // Cách 2: link profile (loại các path hệ thống)
-        var badPaths = /\\/(checkpoint|login|security|settings|help|groups|events|pages|watch|marketplace|messages|notifications|privacy)\\b/i;
-        var allLinks = d.querySelectorAll('a[href]');
-        for (var j = 0; j < allLinks.length; j++) {
-          var a2 = allLinks[j];
-          if (a2.closest('[aria-hidden="true"]')) continue;
-          if (a2.closest('[role="listitem"]')) continue;
-          try {
-            var url = new URL(a2.href);
-            if (!url.hostname.includes('facebook.com')) continue;
-            if (url.pathname === '/' || url.pathname === '') continue;
-            if (badPaths.test(url.pathname)) continue;
-            var span2 = a2.querySelector('span[dir="auto"]');
-            if (span2 && span2.innerText.trim()) return span2.innerText.trim();
-          } catch {}
-        }
+        var h1 = document.querySelector('h1');
+        if (h1) { var t = h1.textContent.trim(); if (t.length > 0 && t.length < 100) return t; }
         return null;
       })()
     `);
 
-    // Đóng dropdown
-    await wcHome.executeJavaScript('document.dispatchEvent(new KeyboardEvent("keydown", {key:"Escape",bubbles:true}))');
-
     const identities = [{
       id:   'personal',
-      name: currentName || 'Trang cá nhân',
+      name: personalName || 'Trang cá nhân',
       type: 'personal',
     }];
-    onLog?.(`Tên cá nhân: "${currentName || '?'}"`);
+    onLog?.(`Tên cá nhân: "${personalName || '?'}"`);
 
-    // Bước 2: Pages — logic từ master branch (span[dir="auto"] + không có aria-label)
+    // Bước 2: Pages — tất cả page ở trang quản lý (tư cách cá nhân sẽ không xuất hiện ở đây)
     onLog?.('Đang lấy danh sách trang...');
     try {
       const wcPages = await navigateFbWin(
@@ -465,8 +408,9 @@ async function fetchGroupsForIdentity(identityId, identityHref, onLog) {
   }
 }
 
-// Chuyển về tư cách cá nhân qua avatar dropdown → first listitem
-async function switchToPersonal(onLog) {
+// Chuyển về tư cách cá nhân qua avatar dropdown
+// Tìm item theo tên cá nhân — vị trí có thể là 1st (đang ở cá nhân) hoặc 2nd (đang ở page)
+async function switchToPersonal(personalName, onLog) {
   const wc = await navigateFbWin('https://www.facebook.com/', onLog);
   await new Promise(r => setTimeout(r, 1500));
 
@@ -486,18 +430,34 @@ async function switchToPersonal(onLog) {
   `);
   await new Promise(r => setTimeout(r, 1500));
 
-  // Click first listitem with avatar (= personal identity)
+  // Tìm listitem theo tên cá nhân, fallback theo thứ tự:
+  // - Đang ở cá nhân: personal ở vị trí 1 → click vị trí 1
+  // - Đang ở page: personal ở vị trí 2 → click vị trí 2
   const clicked = await wc.executeJavaScript(`
     (function() {
+      var targetName = ${JSON.stringify(personalName || '')};
       var dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
       if (!dialogs.length) return false;
       var d = dialogs[dialogs.length - 1];
-      var items = Array.from(d.querySelectorAll('[role="listitem"]'));
-      for (var i = 0; i < items.length; i++) {
-        if (!items[i].querySelector('svg image, img[src]')) continue;
-        var el = items[i].querySelector('a, [role="button"]');
-        if (el) { el.click(); return true; }
+      var items = Array.from(d.querySelectorAll('[role="listitem"]'))
+        .filter(function(item) { return !!item.querySelector('svg image, img[src]'); });
+      if (!items.length) return false;
+
+      // Ưu tiên: tìm theo tên
+      if (targetName) {
+        for (var i = 0; i < items.length; i++) {
+          if ((items[i].innerText || '').includes(targetName)) {
+            var el = items[i].querySelector('a, [role="button"]');
+            if (el) { el.click(); return true; }
+          }
+        }
       }
+
+      // Fallback: vị trí 2 (đang ở page → personal là item thứ 2)
+      // nếu chỉ có 1 item thì click item đó
+      var idx = items.length >= 2 ? 1 : 0;
+      var el2 = items[idx].querySelector('a, [role="button"]');
+      if (el2) { el2.click(); return true; }
       return false;
     })()
   `);
@@ -510,16 +470,17 @@ async function switchToPersonal(onLog) {
 }
 
 // Chuyển sang tư cách page: về cá nhân trước → vào trang page → click "Chuyển ngay"
-async function switchIdentityOnBrowser(identityId, identityName, identityHref, onLog) {
+// personalName cần thiết để tìm đúng item trong dropdown
+async function switchIdentityOnBrowser(identityId, identityName, identityHref, personalName, onLog) {
   if (identityId === 'personal') {
     onLog?.('Đang chuyển về tư cách cá nhân...');
-    await switchToPersonal(onLog);
+    await switchToPersonal(personalName, onLog);
     return { ok: true };
   }
 
   // 1. Về tư cách cá nhân trước
   onLog?.('Chuyển về tư cách cá nhân trước...');
-  await switchToPersonal(onLog);
+  await switchToPersonal(personalName, onLog);
 
   // 2. Mở trang page
   const cleanHref = (identityHref || '').startsWith('/') ? identityHref : '/' + identityHref;
