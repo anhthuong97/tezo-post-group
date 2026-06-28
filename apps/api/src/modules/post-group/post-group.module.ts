@@ -9,6 +9,7 @@ import { ProductModule } from './features/product/product.module';
 import { SettingsModule } from './features/settings/settings.module';
 import { LogModule } from './features/log/log.module';
 import { VncModule } from './features/vnc/vnc.module';
+import { AgentModule } from './features/agent/agent.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { VncModule } from './features/vnc/vnc.module';
     SettingsModule,
     LogModule,
     VncModule,
+    AgentModule,
   ],
 })
 export class PostGroupModule {}

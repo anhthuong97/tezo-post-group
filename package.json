@@ -2,14 +2,21 @@
   "name": "tezo",
   "private": true,
   "packageManager": "npm@10.0.0",
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "turbo run dev",
     "build": "turbo run build",
     "lint": "turbo run lint"
   },
   "devDependencies": {
+    "@types/jsonwebtoken": "^9.0.10",
     "turbo": "^2.0.0",
     "typescript": "^5.4.0"
+  },
+  "dependencies": {
+    "jsonwebtoken": "^9.0.3"
   }
 }
