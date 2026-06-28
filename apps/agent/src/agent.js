@@ -138,9 +138,14 @@ async function pollAndExecute() {
             setStatus({ currentIdentityId });
             await api('post', '/identities', { identities: cachedIdentities, activeIdentityId: identityId });
             onLog(`Đã chuyển sang tư cách: ${identityId}`);
-            // Auto fetch groups cho identity mới
-            await api('post', '/dispatch', { type: 'fetch_groups', payload: { identityId } });
-            onLog('Đang tải nhóm cho tư cách mới...');
+            // Fetch groups trực tiếp, không qua /dispatch (sai auth)
+            onLog('Đang tải nhóm...');
+            const identity    = cachedIdentities.find(i => i.id === identityId);
+            const fetchResult = await fetchGroupsForIdentity(identityId, identity?.href, onLog);
+            if (!fetchResult.error && fetchResult.groups?.length > 0) {
+              await api('post', '/groups', { groups: fetchResult.groups, identityId });
+              onLog(`Đồng bộ ${fetchResult.groups.length} nhóm thành công.`);
+            }
           }
           result = { ok: true };
 

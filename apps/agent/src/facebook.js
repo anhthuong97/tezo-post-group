@@ -216,76 +216,143 @@ async function getIdentities(onLog) {
     const page  = pages.length > 0 ? pages[0] : await ctx.newPage();
 
     await page.goto('https://www.facebook.com/', { waitUntil: 'domcontentloaded', timeout: 30000 });
-    await page.waitForTimeout(1500);
+    await page.waitForTimeout(2000);
 
     if (isLoggedOut(page.url())) return [];
 
-    // Lấy tên trang cá nhân từ nav
+    // Mở profile switcher để lấy đúng tên + danh sách pages
+    // Click vào nút account menu (avatar góc trên phải)
+    const identities = [];
+    try {
+      // Tìm nút account menu — thử nhiều selector vì FB thay đổi liên tục
+      const menuSelectors = [
+        '[aria-label="Account"]',
+        '[data-testid="royal_mega_menu"]',
+        'div[aria-haspopup="menu"] img[alt]',
+      ];
+      let menuBtn = null;
+      for (const sel of menuSelectors) {
+        menuBtn = await page.$(sel);
+        if (menuBtn) break;
+      }
+      if (menuBtn) {
+        await menuBtn.click();
+        await page.waitForTimeout(1500);
+      }
+
+      // Đọc danh sách tư cách từ dropdown
+      const items = await page.evaluate(() => {
+        const results = [];
+        // FB hiển thị profile switcher trong một menu popup
+        // Tìm các item có aria-label hoặc role=menuitem
+        const menus = Array.from(document.querySelectorAll('[role="menuitem"], [role="menu"] a'));
+        for (const el of menus) {
+          const text = el.textContent?.trim();
+          const href = el.getAttribute('href') || '';
+          if (!text || text.length < 2 || text.length > 80) continue;
+          // Loại bỏ các menu item không phải profile/page
+          const SKIP_TEXT = ['Đăng xuất', 'Cài đặt', 'Trợ giúp', 'Hiển thị thêm',
+                             'Log out', 'Settings', 'Help', 'Give feedback',
+                             'See more', 'Xem thêm'];
+          if (SKIP_TEXT.some(s => text.includes(s))) continue;
+          results.push({ text, href });
+        }
+        return results;
+      });
+      onLog?.(`Menu items: ${items.map(i => i.text).join(', ')}`);
+    } catch (e) {
+      onLog?.('Không mở được menu: ' + e.message);
+    }
+
+    // Đóng menu nếu đang mở (nhấn Escape)
+    await page.keyboard.press('Escape').catch(() => {});
+    await page.waitForTimeout(500);
+
+    // --- Lấy tên cá nhân từ nav ---
     const personalName = await page.evaluate(() => {
-      const nav = document.querySelector('[role="navigation"]') || document.body;
-      const allLinks = Array.from(nav.querySelectorAll('a[href]'));
-      for (const a of allLinks) {
+      // Tìm link đến profile cá nhân trong nav
+      const allAs = Array.from(document.querySelectorAll('a[href]'));
+      for (const a of allAs) {
         const href = a.getAttribute('href') || '';
-        if (href === '/me/' || href === 'https://www.facebook.com/me' || href.includes('/profile.php')) {
-          const span = a.querySelector('span');
-          if (span?.textContent?.trim()) return span.textContent.trim();
+        // Link profile cá nhân thường chứa tên slug hoặc profile.php?id
+        if (!href.includes('facebook.com') && !href.startsWith('/')) continue;
+        const imgEl = a.querySelector('image, img[alt]');
+        const spanEl = a.querySelector('span');
+        // Nav profile thường là link có cả ảnh + text tên
+        if (imgEl && spanEl) {
+          const name = spanEl.textContent?.trim();
+          if (name && name.length > 1 && name.length < 60 &&
+              /[A-ZÀ-Ỹa-zà-ỹ0-9]/.test(name)) {
+            return name;
+          }
         }
       }
-      // Fallback: look for any span with a name-like value near profile area
-      const spans = document.querySelectorAll('span');
-      for (const s of spans) {
-        const text = s.textContent?.trim();
-        if (text && text.length > 1 && text.length < 40 && /[A-ZÀ-Ỹa-zà-ỹ]/.test(text)) {
-          const parent = s.closest('a');
-          if (parent?.getAttribute('aria-label')?.toLowerCase().includes('profile')) return text;
-        }
-      }
+      // Fallback: meta tag
+      const ogTitle = document.querySelector('meta[property="og:title"]');
+      if (ogTitle?.content) return ogTitle.content;
       return null;
     });
 
-    const identities = [{ id: 'personal', name: personalName || 'Trang cá nhân', type: 'personal' }];
+    identities.push({
+      id: 'personal',
+      name: personalName || 'Trang cá nhân',
+      type: 'personal',
+    });
 
-    // Lấy danh sách Page từ bookmarks
+    // --- Lấy Pages từ trang quản lý ---
     try {
-      await page.goto('https://www.facebook.com/bookmarks/pages', { waitUntil: 'domcontentloaded', timeout: 20000 });
-      await page.waitForTimeout(2000);
+      await page.goto('https://www.facebook.com/pages/?category=your_pages', {
+        waitUntil: 'domcontentloaded', timeout: 20000,
+      });
+      await page.waitForTimeout(2500);
 
       const fbPages = await page.evaluate(() => {
         const results = [];
         const seen    = new Set();
-        const SKIP    = ['/bookmarks', '/groups', '/home', '/friends', '/video', '/watch',
-                         '/gaming', '/marketplace', '/ads', '/notifications', '/search',
-                         '/events', '/messages', '/me', '/settings', '/help', '/privacy',
-                         '/about', '/create', '/pages/creation', '/login', '/checkpoint'];
 
-        const links = Array.from(document.querySelectorAll('a[href][role="link"], a[href]'));
+        // Pages you manage hiện dưới dạng cards với link đến page
+        // Tìm tất cả link có href là tên page (không phải nav)
+        const links = Array.from(document.querySelectorAll('a[href]'));
         for (const el of links) {
           const href = el.getAttribute('href') || '';
-          if (!href || href === '/') continue;
-          if (SKIP.some(s => href.startsWith(s))) continue;
+          // Page href: /PageName/ hoặc https://www.facebook.com/PageName/
+          const m = href.match(/(?:https?:\/\/(?:www\.)?facebook\.com)?\/([A-Za-z0-9._%-]{3,80})\/?(?:\?.*)?$/);
+          if (!m) continue;
+          const slug = m[1];
 
+          // Bỏ các slug hệ thống
+          const SYSTEM = new Set(['pages', 'groups', 'messages', 'ads', 'watch', 'gaming',
+            'marketplace', 'events', 'friends', 'bookmarks', 'explore', 'search',
+            'home', 'me', 'settings', 'help', 'login', 'checkpoint', 'your_pages',
+            'liked_pages', 'invitations', 'create', 'notifications', 'saved',
+            'memories', 'reels', 'video', 'profile.php']);
+          if (SYSTEM.has(slug)) continue;
+          if (seen.has(slug)) continue;
+
+          // Lấy text của link — là tên page
           const spans = el.querySelectorAll('span');
           let name = '';
           for (const s of spans) {
             const t = s.textContent?.trim();
-            if (t && t.length > 1 && t.length < 100) { name = t; break; }
+            if (t && t.length > 1 && t.length < 100 && !/^\d+$/.test(t)) {
+              name = t; break;
+            }
           }
-          if (!name) continue;
+          if (!name) name = el.getAttribute('aria-label')?.trim() || '';
+          if (!name || name.length < 2) continue;
 
-          const profileMatch = href.match(/profile\.php\?id=(\d+)/);
-          const slugMatch    = href.match(/^\/([^/?#]+)/);
-          const id           = profileMatch ? profileMatch[1] : (slugMatch ? slugMatch[1] : null);
-          if (!id || seen.has(id)) continue;
-          seen.add(id);
-
-          results.push({ id: `page_${id}`, name, href, type: 'page' });
+          seen.add(slug);
+          results.push({ id: `page_${slug}`, name, href: `/${slug}`, type: 'page' });
           if (results.length >= 30) break;
         }
         return results;
       });
 
-      identities.push(...fbPages);
-      onLog?.(`Tìm thấy ${fbPages.length} Page`);
+      // Loại bỏ trùng tên với identities đã có
+      const existingNames = new Set(identities.map(i => i.name.toLowerCase()));
+      const unique = fbPages.filter(p => !existingNames.has(p.name.toLowerCase()));
+      identities.push(...unique);
+      onLog?.(`Tìm thấy ${unique.length} Page`);
     } catch (e) {
       onLog?.('Không lấy được Page: ' + e.message);
     }

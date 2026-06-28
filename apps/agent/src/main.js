@@ -51,10 +51,14 @@ ipcMain.handle('show-browser', () => {
 });
 
 function showBrowser() {
-  if (hidden && !hidden.isDestroyed()) {
-    hidden.show();
-    hidden.focus();
+  if (!hidden || hidden.isDestroyed()) return;
+  // Nếu đang ở about:blank thì navigate đến FB để có gì đó để xem
+  const url = hidden.webContents.getURL();
+  if (!url || url === 'about:blank') {
+    hidden.loadURL('https://www.facebook.com');
   }
+  hidden.show();
+  hidden.focus();
 }
 
 function hideBrowser() {
