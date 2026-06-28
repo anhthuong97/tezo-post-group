@@ -2,7 +2,7 @@ export const API_BASE = '/api/post-group';
 
 export const ENDPOINTS = {
   auth:     { login: `${API_BASE}/auth/login`, logout: `${API_BASE}/auth/logout`, me: `${API_BASE}/auth/me`, register: `${API_BASE}/auth/register`, users: `${API_BASE}/auth/users` },
-  agent:    { status: `${API_BASE}/agent/status`, history: `${API_BASE}/agent/history`, identities: `${API_BASE}/agent/identities`, switchIdentity: `${API_BASE}/agent/switch-identity`, dispatch: `${API_BASE}/agent/dispatch` },
+  agent:    { status: `${API_BASE}/agent/status`, history: `${API_BASE}/agent/history`, identities: `${API_BASE}/agent/identities`, switchIdentity: `${API_BASE}/agent/switch-identity`, dispatch: `${API_BASE}/agent/dispatch`, task: `${API_BASE}/agent/task` },
   groups:   { list: `${API_BASE}/groups`, sync: `${API_BASE}/groups/sync` },
   post:     { start: `${API_BASE}/post`, status: `${API_BASE}/post/status`, log: `${API_BASE}/post/log`, cancel: `${API_BASE}/post/cancel`, cancelAll: `${API_BASE}/post/cancel-all`, upload: `${API_BASE}/post/upload` },
   ai:       { suggest: `${API_BASE}/ai/suggest` },

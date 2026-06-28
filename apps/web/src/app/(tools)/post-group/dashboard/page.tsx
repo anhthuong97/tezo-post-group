@@ -61,11 +61,11 @@ export default function DashboardPage() {
     setTimeout(() => groups.loadGroups(identityId), 20000);
   };
 
-  const handleSwitchIdentity = (identityId: string) => {
-    groups.clearGroups(); // clear immediately while browser is switching
-    agent.switchIdentity(identityId);
-    // Agent cần ~30-90s để chuyển tư cách + tải nhóm
-    [15000, 40000, 80000].forEach(d => setTimeout(() => groups.loadGroups(identityId), d));
+  const handleSwitchIdentity = async (identityId: string) => {
+    if (identityId === agent.currentIdentity?.id) return;
+    groups.clearGroups();                        // xóa ngay lập tức
+    await agent.switchIdentity(identityId);      // block đến khi agent xong (~30-90s)
+    await groups.loadGroups(identityId);         // load groups đã agent lưu sẵn
   };
 
   return (

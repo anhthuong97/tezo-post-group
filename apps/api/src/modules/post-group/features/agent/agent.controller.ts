@@ -150,6 +150,13 @@ export class AgentController {
     return { success: true, taskId };
   }
 
+  @Get('task/:id')
+  @UseGuards(SessionGuard)
+  async getTask(@CurrentUser() u: CurrentUserData, @Param('id', ParseIntPipe) id: number) {
+    const task = await this.svc.getTaskById(id);
+    return { task: task || null };
+  }
+
   @Get('history')
   @UseGuards(SessionGuard)
   async getHistory(@CurrentUser() u: CurrentUserData) {

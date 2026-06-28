@@ -55,17 +55,38 @@ export function useFacebookLogin(_onLoggedIn?: () => void) {
   }, [checkStatus, fetchIdentities]);
 
   const switchIdentity = useCallback(async (identityId: string) => {
+    if (switching) return; // chặn double-click khi đang chuyển
     setSwitching(true);
+    setError('');
     try {
-      await api.post(ENDPOINTS.agent.switchIdentity, { identityId });
       const found = identities.find(i => i.id === identityId);
-      if (found) setCurrentIdentity(found);
+      if (found) setCurrentIdentity(found); // optimistic update để UI phản hồi ngay
+
+      const res: any = await api.post(ENDPOINTS.agent.switchIdentity, { identityId });
+      if (!res?.success) {
+        setError(res?.error || 'Agent chưa kết nối.');
+        return;
+      }
+
+      // Poll task đến khi done — blocking như logic cũ (VPS blocking HTTP)
+      const taskId: number = res.taskId;
+      if (taskId) {
+        const deadline = Date.now() + 120_000; // tối đa 2 phút
+        while (Date.now() < deadline) {
+          await new Promise(r => setTimeout(r, 3000));
+          try {
+            const t: any = await api.get(`${ENDPOINTS.agent.task}/${taskId}`);
+            const status = t?.task?.status;
+            if (status === 'done' || status === 'error') break;
+          } catch {}
+        }
+      }
     } catch (e: any) {
-      setError(e.message || 'Không thể chuyển tư cách');
+      setError(e.message || 'Lỗi chuyển tư cách');
     } finally {
       setSwitching(false);
     }
-  }, [identities]);
+  }, [identities, switching]);
 
   return {
     agentOnline,

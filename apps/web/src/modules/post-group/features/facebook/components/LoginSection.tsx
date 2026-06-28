@@ -177,7 +177,7 @@ export function LoginSection({
                 <p className="text-[11px] text-gray-400 uppercase tracking-wide font-medium">Đăng bài với tư cách</p>
                 <button
                   onClick={handleSyncIdentities}
-                  disabled={syncingIdentities}
+                  disabled={syncingIdentities || switching}
                   className="p-1 text-gray-400 hover:text-blue-600 disabled:opacity-50 rounded transition-colors"
                   title="Tải lại danh sách tư cách từ Facebook"
                 >
@@ -186,49 +186,66 @@ export function LoginSection({
                     : <RefreshCw className="w-3.5 h-3.5" />}
                 </button>
               </div>
-              <button
-                onClick={() => setShowDropdown(v => !v)}
-                disabled={switching}
-                className="w-full flex items-center justify-between gap-2 px-3 py-2 text-sm
-                           bg-white border border-gray-200 rounded-lg hover:border-blue-300
-                           transition-colors text-left disabled:opacity-50"
-              >
-                <span className="flex items-center gap-2 min-w-0">
-                  <span className={`text-xs px-1.5 py-0.5 rounded font-medium shrink-0 ${
-                    currentIdentity?.type === 'page' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
-                  }`}>
-                    {currentIdentity?.type === 'page' ? 'Page' : 'Cá nhân'}
-                  </span>
-                  <span className="truncate font-medium text-gray-800">
-                    {currentIdentity?.name || 'Trang cá nhân'}
-                  </span>
-                </span>
-                {switching
-                  ? <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400 shrink-0" />
-                  : <ChevronDown className="w-3.5 h-3.5 text-gray-400 shrink-0" />}
-              </button>
 
-              {showDropdown && (
-                <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-white border border-gray-200
-                                rounded-lg shadow-lg overflow-hidden max-h-48 overflow-y-auto">
-                  {identities.map(identity => (
-                    <button
-                      key={identity.id}
-                      onClick={() => handleSelectIdentity(identity.id)}
-                      className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left
-                                  hover:bg-blue-50 transition-colors
-                                  ${identity.id === activeId ? 'bg-blue-50' : ''}`}
-                    >
-                      <span className={`text-xs px-1.5 py-0.5 rounded font-medium shrink-0 ${
-                        identity.type === 'page' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
-                      }`}>
-                        {identity.type === 'page' ? 'Page' : 'Cá nhân'}
-                      </span>
-                      <span className="truncate">{identity.name}</span>
-                      {identity.id === activeId && <span className="ml-auto text-blue-500 text-xs shrink-0">✓</span>}
-                    </button>
-                  ))}
+              {/* Khi đang chuyển tư cách: hiện spinner, khoá hoàn toàn — giống logic master cũ */}
+              {switching ? (
+                <div className="w-full flex items-center gap-2 px-3 py-2 text-xs text-blue-500
+                                bg-blue-50 border border-blue-200 rounded-lg
+                                pointer-events-none select-none">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                  Đang chuyển tư cách...
                 </div>
+              ) : syncingIdentities ? (
+                <div className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-400
+                                bg-gray-50 border border-gray-200 rounded-lg
+                                pointer-events-none select-none">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                  Đang tải lại tư cách...
+                </div>
+              ) : (
+                <>
+                  <button
+                    onClick={() => setShowDropdown(v => !v)}
+                    className="w-full flex items-center justify-between gap-2 px-3 py-2 text-sm
+                               bg-white border border-gray-200 rounded-lg hover:border-blue-300
+                               transition-colors text-left"
+                  >
+                    <span className="flex items-center gap-2 min-w-0">
+                      <span className={`text-xs px-1.5 py-0.5 rounded font-medium shrink-0 ${
+                        currentIdentity?.type === 'page' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                      }`}>
+                        {currentIdentity?.type === 'page' ? 'Page' : 'Cá nhân'}
+                      </span>
+                      <span className="truncate font-medium text-gray-800">
+                        {currentIdentity?.name || 'Trang cá nhân'}
+                      </span>
+                    </span>
+                    <ChevronDown className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                  </button>
+
+                  {showDropdown && (
+                    <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-white border border-gray-200
+                                    rounded-lg shadow-lg overflow-hidden max-h-48 overflow-y-auto">
+                      {identities.map(identity => (
+                        <button
+                          key={identity.id}
+                          onClick={() => handleSelectIdentity(identity.id)}
+                          className={`w-full flex items-center gap-2 px-3 py-2 text-sm text-left
+                                      hover:bg-blue-50 transition-colors
+                                      ${identity.id === activeId ? 'bg-blue-50' : ''}`}
+                        >
+                          <span className={`text-xs px-1.5 py-0.5 rounded font-medium shrink-0 ${
+                            identity.type === 'page' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                          }`}>
+                            {identity.type === 'page' ? 'Page' : 'Cá nhân'}
+                          </span>
+                          <span className="truncate">{identity.name}</span>
+                          {identity.id === activeId && <span className="ml-auto text-blue-500 text-xs shrink-0">✓</span>}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}
