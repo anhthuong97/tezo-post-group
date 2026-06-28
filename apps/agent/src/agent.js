@@ -101,13 +101,13 @@ async function pollAndExecute() {
         if (task.type === 'login_facebook') {
           const { loginFacebook } = require('./facebook');
           const { app } = require('electron');
-          const loginResult = await loginFacebook(onLog, app.showBrowser, app.hideBrowser);
+          const loginResult = await loginFacebook(onLog, app.showBrowser, app.hideBrowser, app.doLogin);
           if (loginResult.ok) await triggerAfterLogin(onLog);
           result = loginResult;
 
         } else if (task.type === 'show_browser') {
           const { app } = require('electron');
-          app.showBrowser?.();
+          app.showBrowser?.(); // Mở fbWindow full-size
           result = { ok: true };
 
         } else if (task.type === 'clear_session') {

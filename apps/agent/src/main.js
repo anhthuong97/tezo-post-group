@@ -1,27 +1,143 @@
-const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, shell } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain, nativeImage, session } = require('electron');
 const path   = require('path');
+const fs     = require('fs');
 const agent  = require('./agent');
 const { getSettings, saveSettings } = require('./store');
-const { clearSession, loginFacebook } = require('./facebook');
+const { clearSession, SESSION_PATH, resetContext } = require('./facebook');
 
 // Bật CDP để Playwright kết nối vào Chromium của Electron
 app.commandLine.appendSwitch('remote-debugging-port', '9222');
 app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1');
 
-// Dùng Chrome user agent — tránh Facebook nhận ra Electron và trả về giao diện mobile
+// Chrome user agent — tránh Facebook nhận ra Electron
 const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 app.userAgentFallback = CHROME_UA;
 
-let tray      = null;
-let popup     = null;
-let hidden    = null; // window ẩn để giữ Chromium sống
-let lastStatus = { connected: false };
+let tray     = null;
+let popup    = null;
+let hidden   = null; // window ẩn giữ CDP/Chromium — KHÔNG bao giờ show
+let fbWindow = null; // window riêng, full-size, cho user tương tác Facebook
+
+// ─── Facebook window ───────────────────────────────────────────────────────
+
+function createFbWindow() {
+  if (fbWindow && !fbWindow.isDestroyed()) {
+    fbWindow.show();
+    fbWindow.focus();
+    return fbWindow;
+  }
+  fbWindow = new BrowserWindow({
+    width: 1366,
+    height: 900,
+    title: 'Facebook — TeZo Agent',
+    autoHideMenuBar: true,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  });
+  fbWindow.maximize();
+  fbWindow.loadURL('https://www.facebook.com');
+  fbWindow.on('closed', () => { fbWindow = null; });
+  return fbWindow;
+}
+
+function showBrowser() {
+  createFbWindow();
+}
+
+function hideBrowser() {
+  // Không ẩn fbWindow — user có thể đang tương tác
+}
+
+// Đăng nhập Facebook qua fbWindow full-size, detect xong thì lưu cookies
+async function doLogin(onLog) {
+  return new Promise((resolve) => {
+    const win = createFbWindow();
+    win.show();
+    win.focus();
+
+    let resolved = false;
+
+    const finish = async (result) => {
+      if (resolved) return;
+      resolved = true;
+      win.webContents.removeAllListeners('did-navigate');
+      win.webContents.removeAllListeners('did-navigate-in-page');
+
+      if (result.ok) {
+        try {
+          const cookies = await session.defaultSession.cookies.get({ domain: '.facebook.com' });
+          const state = {
+            cookies: cookies.map(c => ({
+              name:     c.name,
+              value:    c.value,
+              domain:   c.domain.startsWith('.') ? c.domain : `.${c.domain}`,
+              path:     c.path || '/',
+              expires:  c.expirationDate ?? -1,
+              httpOnly: c.httpOnly || false,
+              secure:   c.secure || false,
+              sameSite: c.sameSite === 'strict' ? 'Strict'
+                      : c.sameSite === 'lax'    ? 'Lax' : 'None',
+            })),
+            origins: [],
+          };
+          fs.writeFileSync(SESSION_PATH, JSON.stringify(state, null, 2));
+          onLog?.('Đã lưu phiên đăng nhập.');
+        } catch (e) {
+          onLog?.('Lưu session thất bại: ' + e.message);
+        }
+        // Reset Playwright context để load session mới
+        await resetContext();
+      }
+      resolve(result);
+    };
+
+    const isLoggedIn = (url) => {
+      if (!url || !url.includes('facebook.com')) return false;
+      try {
+        const { pathname } = new URL(url);
+        return !pathname.startsWith('/login')
+            && !pathname.startsWith('/checkpoint')
+            && !pathname.startsWith('/r.php');
+      } catch { return false; }
+    };
+
+    const checkNow = () => {
+      const url = win.webContents.getURL();
+      if (isLoggedIn(url)) {
+        onLog?.('Đã đăng nhập Facebook rồi!');
+        finish({ ok: true, alreadyLoggedIn: true });
+        return true;
+      }
+      return false;
+    };
+
+    if (!checkNow()) {
+      onLog?.('Vui lòng đăng nhập Facebook trong cửa sổ vừa mở...');
+      win.webContents.on('did-navigate', (_, url) => {
+        if (isLoggedIn(url)) {
+          onLog?.('Đăng nhập thành công!');
+          setTimeout(() => finish({ ok: true }), 1200);
+        }
+      });
+      win.webContents.on('did-navigate-in-page', (_, url) => {
+        if (isLoggedIn(url)) setTimeout(() => finish({ ok: true }), 1200);
+      });
+    }
+
+    setTimeout(() => finish({ error: 'Timeout 5 phút — chưa đăng nhập' }), 5 * 60 * 1000);
+  });
+}
+
+app.showBrowser = showBrowser;
+app.hideBrowser = hideBrowser;
+app.doLogin     = doLogin;
 
 // ─── IPC handlers ─────────────────────────────────────────────────────────
 
-ipcMain.handle('get-settings',  () => getSettings());
-ipcMain.handle('get-status',    () => agent.getStatus());
-ipcMain.handle('clear-session', () => { clearSession(); });
+ipcMain.handle('get-settings', () => getSettings());
+ipcMain.handle('get-status',   () => agent.getStatus());
 
 ipcMain.handle('save-settings', (_, data) => {
   saveSettings(data);
@@ -31,64 +147,24 @@ ipcMain.handle('start-agent', async () => {
   const s = getSettings();
   if (!s.serverUrl || !s.username || !s.password) return { error: 'Chưa đủ thông tin cài đặt.' };
   agent.start(s, (status) => {
-    lastStatus = status;
     updateTrayTooltip(status);
     popup?.webContents.send('status-update', status);
   });
   return { ok: true };
 });
 
-ipcMain.handle('stop-agent', () => {
-  agent.stop();
-});
+ipcMain.handle('stop-agent', () => agent.stop());
 
 ipcMain.handle('minimize', () => {
   if (popup && !popup.isDestroyed()) popup.hide();
 });
 
-ipcMain.handle('show-browser', () => {
-  showBrowser();
-});
-
-function showBrowser() {
-  if (!hidden || hidden.isDestroyed()) return;
-  // Nếu đang ở about:blank thì navigate đến FB để có gì đó để xem
-  const url = hidden.webContents.getURL();
-  if (!url || url === 'about:blank') {
-    hidden.loadURL('https://www.facebook.com');
-  }
-  hidden.show();
-  hidden.focus();
-}
-
-function hideBrowser() {
-  if (hidden && !hidden.isDestroyed()) {
-    hidden.hide();
-  }
-}
-
-// Export để agent.js dùng khi xử lý task login_facebook
-app.showBrowser = showBrowser;
-app.hideBrowser = hideBrowser;
-
-ipcMain.handle('login-facebook', async () => {
-  const onLog = (msg) => popup?.webContents.send('log-message', msg);
-  const result = await loginFacebook(onLog, showBrowser, hideBrowser);
-  if (result.ok) {
-    agent.triggerAfterLogin(onLog).catch(() => {});
-  }
-  return result;
-});
-
 // ─── Tray ─────────────────────────────────────────────────────────────────
 
 function buildTrayMenu() {
-  const s = lastStatus;
+  const s = agent.getStatus();
   return Menu.buildFromTemplate([
-    {
-      label: s.connected ? '🟢 Đã kết nối VPS' : '🔴 Chưa kết nối',
-      enabled: false,
-    },
+    { label: s.connected ? '🟢 Đã kết nối VPS' : '🔴 Chưa kết nối', enabled: false },
     s.currentTask
       ? { label: `⚙️ Đang chạy task #${s.currentTask.id}`, enabled: false }
       : { label: 'Chờ task...', enabled: false },
@@ -107,12 +183,13 @@ function updateTrayTooltip(status) {
 
 function openPopup() {
   if (popup && !popup.isDestroyed()) {
+    popup.show();
     popup.focus();
     return;
   }
   popup = new BrowserWindow({
     width: 380,
-    height: 500,
+    height: 400,
     resizable: false,
     minimizable: false,
     maximizable: false,
@@ -131,11 +208,16 @@ function openPopup() {
 // ─── App lifecycle ─────────────────────────────────────────────────────────
 
 app.whenReady().then(async () => {
-  // Window ẩn để giữ CDP / Chromium luôn sẵn sàng
-  hidden = new BrowserWindow({ show: false, width: 1200, height: 800, title: 'TeZo Agent Browser' });
+  // Hidden window: giữ Chromium/CDP sống — user KHÔNG bao giờ thấy
+  hidden = new BrowserWindow({
+    show: false,
+    width: 1280,
+    height: 900,
+    title: '_tezo_hidden',
+    webPreferences: { nodeIntegration: false, contextIsolation: false },
+  });
   hidden.loadURL('about:blank');
 
-  // Tray icon
   const iconPath = path.join(__dirname, '../assets/icon.png');
   const icon = nativeImage.createFromPath(iconPath);
   tray = new Tray(icon.isEmpty() ? nativeImage.createEmpty() : icon.resize({ width: 16, height: 16 }));
@@ -143,11 +225,9 @@ app.whenReady().then(async () => {
   tray.setContextMenu(buildTrayMenu());
   tray.on('double-click', openPopup);
 
-  // Auto-start nếu có cài đặt
   const s = getSettings();
   if (s.serverUrl && s.username && s.password && s.autoStart) {
     agent.start(s, (status) => {
-      lastStatus = status;
       updateTrayTooltip(status);
       popup?.webContents.send('status-update', status);
     });
@@ -156,5 +236,5 @@ app.whenReady().then(async () => {
   }
 });
 
-app.on('window-all-closed', (e) => e.preventDefault()); // giữ app chạy khi đóng popup
+app.on('window-all-closed', (e) => e.preventDefault());
 app.on('before-quit', () => { agent.stop(); });

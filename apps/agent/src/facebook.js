@@ -174,25 +174,32 @@ function clearSession() {
   browser = null;
 }
 
-async function loginFacebook(onLog, onShowBrowser, onHideBrowser) {
+// Disconnect Playwright khỏi CDP — lần connect tiếp sẽ load session mới
+async function resetContext() {
+  if (browser) {
+    try { browser.disconnect(); } catch {}
+    browser = null;
+  }
+}
+
+// loginFacebook: dùng doLogin (Electron fbWindow) nếu được truyền vào
+async function loginFacebook(onLog, onShowBrowser, onHideBrowser, doLogin) {
+  if (doLogin) {
+    return await doLogin(onLog);
+  }
+  // Fallback Playwright-based (không khuyến khích)
   onLog('Đang kết nối Facebook...');
   try {
     const ctx   = await getOrCreateContext();
     const pages = ctx.pages();
     const page  = pages.length > 0 ? pages[0] : await ctx.newPage();
-
-    // Navigate trong khi window còn ẩn — tránh conflict với Electron
     await page.goto('https://www.facebook.com', { waitUntil: 'domcontentloaded', timeout: 30000 });
-
     if (!isLoggedOut(page.url())) {
       onLog('Đã đăng nhập Facebook rồi!');
       return { ok: true, alreadyLoggedIn: true };
     }
-
-    // Page đã load xong rồi mới show window → không abort navigation
     onShowBrowser?.();
     onLog('Vui lòng đăng nhập Facebook trong cửa sổ vừa mở...');
-
     await page.waitForFunction(
       () => !window.location.href.includes('/login') && !window.location.href.includes('/checkpoint'),
       { timeout: 5 * 60 * 1000 }
@@ -438,4 +445,4 @@ async function fetchGroupsForIdentity(identityId, identityHref, onLog) {
   }
 }
 
-module.exports = { ensureLoggedIn, fetchGroups, fetchGroupsForIdentity, getIdentities, runPostTask, clearSession, loginFacebook, SESSION_PATH };
+module.exports = { ensureLoggedIn, fetchGroups, fetchGroupsForIdentity, getIdentities, runPostTask, clearSession, resetContext, loginFacebook, SESSION_PATH };
