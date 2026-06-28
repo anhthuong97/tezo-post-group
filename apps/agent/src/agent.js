@@ -102,10 +102,19 @@ async function pollAndExecute() {
           const { loginFacebook } = require('./facebook');
           const { app } = require('electron');
           const loginResult = await loginFacebook(onLog, app.showBrowser, app.hideBrowser);
-          if (loginResult.ok) {
-            await triggerAfterLogin(onLog);
-          }
+          if (loginResult.ok) await triggerAfterLogin(onLog);
           result = loginResult;
+
+        } else if (task.type === 'show_browser') {
+          const { app } = require('electron');
+          app.showBrowser?.();
+          result = { ok: true };
+
+        } else if (task.type === 'clear_session') {
+          const { clearSession } = require('./facebook');
+          clearSession();
+          onLog('Đã xóa session Facebook.');
+          result = { ok: true };
 
         } else if (task.type === 'post_groups') {
           const { runPostTask } = require('./facebook');

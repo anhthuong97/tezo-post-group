@@ -1,5 +1,5 @@
 'use client';
-import { Loader2, RefreshCw, Wifi, WifiOff, ChevronDown, LogIn } from 'lucide-react';
+import { Loader2, RefreshCw, Wifi, WifiOff, ChevronDown, LogIn, Monitor, Trash2 } from 'lucide-react';
 import { groupsApi } from '../../groups/api/groups.api';
 import { api } from '@/shared/lib/api-client';
 import { ENDPOINTS } from '@/shared/lib/constants';
@@ -29,6 +29,36 @@ export function LoginSection({
 
   const activeId = currentIdentity?.id || 'personal';
 
+  const dispatch = async (type: string) => {
+    const res: any = await api.post(ENDPOINTS.agent.dispatch, { type, payload: {} });
+    return res;
+  };
+
+  const handleLoginFacebook = async () => {
+    setLoggingIn(true);
+    setLoginMsg('Đang gửi lệnh đến TeZo Agent...');
+    try {
+      const res = await dispatch('login_facebook');
+      setLoginMsg(res.success
+        ? 'Cửa sổ đăng nhập đã mở trên máy tính. Vui lòng đăng nhập Facebook trong đó.'
+        : res.error || 'Agent chưa kết nối.');
+      if (!res.success) setLoggingIn(false);
+    } catch (e: any) {
+      setLoginMsg(e.message || 'Lỗi kết nối');
+      setLoggingIn(false);
+    }
+    setTimeout(() => { setLoggingIn(false); setLoginMsg(''); }, 12000);
+  };
+
+  const handleShowBrowser = async () => {
+    try { await dispatch('show_browser'); } catch {}
+  };
+
+  const handleClearSession = async () => {
+    if (!confirm('Xóa session Facebook? Agent sẽ cần đăng nhập lại.')) return;
+    try { await dispatch('clear_session'); } catch {}
+  };
+
   const handleSync = async () => {
     setSyncing(true); setSyncError('');
     try {
@@ -46,25 +76,6 @@ export function LoginSection({
     onSwitchIdentity(id);
   };
 
-  const handleLoginFacebook = async () => {
-    setLoggingIn(true);
-    setLoginMsg('Đang gửi lệnh đến TeZo Agent...');
-    try {
-      const res: any = await api.post(ENDPOINTS.agent.dispatch, { type: 'login_facebook', payload: {} });
-      if (res.success) {
-        setLoginMsg('Cửa sổ đăng nhập đã mở trên máy tính của bạn. Vui lòng đăng nhập Facebook trong đó.');
-      } else {
-        setLoginMsg(res.error || 'Không thể gửi lệnh. Hãy kiểm tra TeZo Agent đã kết nối chưa.');
-        setLoggingIn(false);
-      }
-    } catch (e: any) {
-      setLoginMsg(e.message || 'Lỗi kết nối');
-      setLoggingIn(false);
-    }
-    // Không tắt loading vì user cần thấy thông báo, tắt sau 10s
-    setTimeout(() => { setLoggingIn(false); setLoginMsg(''); }, 10000);
-  };
-
   return (
     <div className="flex flex-col gap-2">
       {/* Agent status */}
@@ -73,20 +84,56 @@ export function LoginSection({
         <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full ${
           agentOnline ? 'text-green-700 bg-green-50' : 'text-gray-500 bg-gray-100'
         }`}>
-          {agentOnline
-            ? <><Wifi className="w-3 h-3" />Đang kết nối</>
-            : <><WifiOff className="w-3 h-3" />Chưa kết nối</>}
+          {agentOnline ? <><Wifi className="w-3 h-3" />Đang kết nối</> : <><WifiOff className="w-3 h-3" />Chưa kết nối</>}
         </span>
       </div>
 
       {!agentOnline && (
         <p className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
-          Hãy mở <strong>TeZo Agent</strong> trên máy tính và đăng nhập để bắt đầu.
+          Hãy mở <strong>TeZo Agent</strong> trên máy tính và kết nối VPS để bắt đầu.
         </p>
       )}
 
       {agentOnline && (
         <>
+          {/* 3 nút hành động */}
+          <div className="flex gap-1.5">
+            <button
+              onClick={handleLoginFacebook}
+              disabled={loggingIn}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2 px-2
+                         bg-[#1877f2] hover:bg-[#1561d4] text-white text-xs font-semibold
+                         rounded-lg transition-colors disabled:opacity-60"
+            >
+              {loggingIn ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LogIn className="w-3.5 h-3.5" />}
+              {loggingIn ? 'Đang mở...' : 'Đăng nhập FB'}
+            </button>
+            <button
+              onClick={handleShowBrowser}
+              className="flex items-center justify-center gap-1.5 py-2 px-3
+                         bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold
+                         rounded-lg transition-colors"
+              title="Hiện cửa sổ browser của agent"
+            >
+              <Monitor className="w-3.5 h-3.5" />
+              Hiện Browser
+            </button>
+            <button
+              onClick={handleClearSession}
+              className="flex items-center justify-center gap-1.5 py-2 px-3
+                         bg-red-50 hover:bg-red-100 text-red-600 text-xs font-semibold
+                         rounded-lg transition-colors"
+              title="Xóa session Facebook, cần đăng nhập lại"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              Xóa session
+            </button>
+          </div>
+
+          {loginMsg && (
+            <p className="text-xs text-blue-700 bg-blue-50 rounded px-2 py-1.5">{loginMsg}</p>
+          )}
+
           {/* Identity selector */}
           {identities.length > 0 && (
             <div className="relative">
@@ -100,9 +147,7 @@ export function LoginSection({
               >
                 <span className="flex items-center gap-2 min-w-0">
                   <span className={`text-xs px-1.5 py-0.5 rounded font-medium shrink-0 ${
-                    currentIdentity?.type === 'page'
-                      ? 'bg-purple-100 text-purple-700'
-                      : 'bg-blue-100 text-blue-700'
+                    currentIdentity?.type === 'page' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
                   }`}>
                     {currentIdentity?.type === 'page' ? 'Page' : 'Cá nhân'}
                   </span>
@@ -127,16 +172,12 @@ export function LoginSection({
                                   ${identity.id === activeId ? 'bg-blue-50' : ''}`}
                     >
                       <span className={`text-xs px-1.5 py-0.5 rounded font-medium shrink-0 ${
-                        identity.type === 'page'
-                          ? 'bg-purple-100 text-purple-700'
-                          : 'bg-blue-100 text-blue-700'
+                        identity.type === 'page' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
                       }`}>
                         {identity.type === 'page' ? 'Page' : 'Cá nhân'}
                       </span>
                       <span className="truncate">{identity.name}</span>
-                      {identity.id === activeId && (
-                        <span className="ml-auto text-blue-500 text-xs shrink-0">✓</span>
-                      )}
+                      {identity.id === activeId && <span className="ml-auto text-blue-500 text-xs shrink-0">✓</span>}
                     </button>
                   ))}
                 </div>
@@ -144,55 +185,20 @@ export function LoginSection({
             </div>
           )}
 
-              {/* Đăng nhập Facebook */}
-          {identities.length === 0 && (
-            <div className="flex flex-col gap-1.5">
-              <button
-                onClick={handleLoginFacebook}
-                disabled={loggingIn}
-                className="w-full flex items-center justify-center gap-2 py-2 px-3
-                           bg-[#1877f2] hover:bg-[#1561d4] text-white text-sm font-semibold
-                           rounded-lg transition-colors disabled:opacity-60"
-              >
-                {loggingIn
-                  ? <Loader2 className="w-4 h-4 animate-spin" />
-                  : <LogIn className="w-4 h-4" />}
-                Đăng nhập Facebook
-              </button>
-              {loginMsg && (
-                <p className="text-xs text-blue-700 bg-blue-50 rounded px-2 py-1.5">{loginMsg}</p>
-              )}
-            </div>
-          )}
-
-          {/* Nếu đã có identities: nút re-login nhỏ + sync */}
-          {identities.length > 0 && (
-            <div className="flex items-center justify-between">
-              <button
-                onClick={handleLoginFacebook}
-                disabled={loggingIn}
-                className="text-xs text-gray-400 hover:text-blue-600 disabled:opacity-50 flex items-center gap-1"
-              >
-                <LogIn className="w-3 h-3" />
-                {loggingIn ? 'Đang mở...' : 'Đổi tài khoản'}
-              </button>
-              <div className="flex items-center gap-3">
-                <span className="text-xs text-gray-400">
-                  {syncedAt ? new Date(syncedAt).toLocaleString('vi-VN') : 'Chưa sync'}
-                </span>
-                <button
-                  onClick={handleSync}
-                  disabled={syncing}
-                  className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50"
-                >
-                  {syncing
-                    ? <Loader2 className="w-3 h-3 animate-spin" />
-                    : <RefreshCw className="w-3 h-3" />}
-                  {syncing ? 'Đang tải...' : 'Tải nhóm'}
-                </button>
-              </div>
-            </div>
-          )}
+          {/* Sync */}
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-gray-400">
+              {syncedAt ? `Đã sync: ${new Date(syncedAt).toLocaleString('vi-VN')}` : 'Chưa có danh sách nhóm'}
+            </span>
+            <button
+              onClick={handleSync}
+              disabled={syncing}
+              className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50"
+            >
+              {syncing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+              {syncing ? 'Đang tải...' : 'Tải nhóm'}
+            </button>
+          </div>
         </>
       )}
 
