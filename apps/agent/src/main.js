@@ -38,6 +38,10 @@ ipcMain.handle('stop-agent', () => {
   agent.stop();
 });
 
+ipcMain.handle('minimize', () => {
+  if (popup && !popup.isDestroyed()) popup.hide();
+});
+
 // ─── Tray ─────────────────────────────────────────────────────────────────
 
 function buildTrayMenu() {

@@ -84,3 +84,7 @@ $('btnClearSession').addEventListener('click', async () => {
   await window.tezo.clearSession();
   addLog('Đã xóa session Facebook. Lần sau sẽ cần đăng nhập lại.');
 });
+
+$('btnMinimize').addEventListener('click', () => {
+  window.tezo.minimize();
+});

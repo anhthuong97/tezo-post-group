@@ -7,9 +7,16 @@
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 13px; background: #f8f9fa; color: #1a1a1a; }
 
-    .header { background: #1877f2; color: white; padding: 14px 16px; }
-    .header h1 { font-size: 16px; font-weight: 700; }
-    .header p  { font-size: 11px; opacity: .8; margin-top: 2px; }
+    .header { background: #1877f2; color: white; padding: 14px 16px; display: flex; align-items: flex-start; justify-content: space-between; }
+    .header-text h1 { font-size: 16px; font-weight: 700; }
+    .header-text p  { font-size: 11px; opacity: .8; margin-top: 2px; }
+    .btn-minimize {
+      background: rgba(255,255,255,0.2); border: none; color: white;
+      width: 26px; height: 26px; border-radius: 6px; cursor: pointer;
+      font-size: 16px; line-height: 1; display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .btn-minimize:hover { background: rgba(255,255,255,0.35); }
 
     .status-bar {
       display: flex; align-items: center; gap: 8px;
@@ -65,8 +72,11 @@
 </head>
 <body>
   <div class="header">
-    <h1>TeZo Agent</h1>
-    <p>Tự động đăng bài Facebook</p>
+    <div class="header-text">
+      <h1>TeZo Agent</h1>
+      <p>Tự động đăng bài Facebook</p>
+    </div>
+    <button class="btn-minimize" id="btnMinimize" title="Thu nhỏ xuống khay">—</button>
   </div>
 
   <div class="status-bar">
