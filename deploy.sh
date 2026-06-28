@@ -16,7 +16,7 @@ sudo -u postgres psql -d tezo -f schema.sql
 echo "      Schema OK."
 
 echo "[2/3] Build..."
-npm run build
+npx turbo run build --filter=@tezo/api --filter=@tezo/web
 echo "      Build xong."
 
 echo "[3/3] Restart PM2..."
