@@ -236,23 +236,19 @@ async function navigateFbWin(url, onLog) {
 async function getIdentities(onLog) {
   onLog?.('Đang lấy danh sách tư cách...');
   try {
-    // Bước 1: Lấy tên cá nhân từ facebook.com/me (redirect tới profile thật)
+    // Bước 1: Tên cá nhân — navigate /me → redirect → h1 trên trang profile (cực kỳ tin cậy)
     const wcMe = await navigateFbWin('https://www.facebook.com/me', onLog);
-    const meUrl = wcMe.getURL();
-    if (isLoggedOut(meUrl)) {
+    if (isLoggedOut(wcMe.getURL())) {
       onLog?.('Chưa đăng nhập Facebook.');
       return [];
     }
 
-    // Tên cá nhân lấy từ h1 trên trang profile
     const personalName = await wcMe.executeJavaScript(`
       (function() {
         var h1 = document.querySelector('h1');
-        if (h1 && h1.textContent.trim().length > 0) return h1.textContent.trim();
-        var spans = document.querySelectorAll('span[dir="auto"]');
-        for (var i = 0; i < spans.length; i++) {
-          var t = spans[i].textContent.trim();
-          if (t.length > 1 && t.length < 60) return t;
+        if (h1) {
+          var t = h1.textContent.trim();
+          if (t.length > 0 && t.length < 100) return t;
         }
         return null;
       })()
@@ -264,30 +260,29 @@ async function getIdentities(onLog) {
       type: 'personal',
     }];
 
-    // Bước 2: Lấy danh sách Pages từ trang quản lý
+    // Bước 2: Pages — chỉ query trong [role="main"] để loại sidebar nav hoàn toàn
     onLog?.('Đang lấy danh sách trang...');
     try {
       const wcPages = await navigateFbWin('https://www.facebook.com/pages/?category=your_pages', onLog);
-      await new Promise(r => setTimeout(r, 1000));
 
       const fbPages = await wcPages.executeJavaScript(`
         (function() {
+          // Chỉ lấy trong vùng nội dung chính — sidebar nav (Khám phá, Tin nhắn...) nằm ngoài đây
+          var main = document.querySelector('[role="main"]') || document.body;
+          var links = main.querySelectorAll('a[href]');
           var results = [];
           var seen = {};
-          var SYSTEM = {pages:1,groups:1,messages:1,ads:1,watch:1,gaming:1,marketplace:1,
-            events:1,friends:1,bookmarks:1,explore:1,search:1,home:1,me:1,settings:1,
-            help:1,login:1,checkpoint:1,your_pages:1,liked_pages:1,invitations:1,
-            create:1,notifications:1,saved:1,memories:1,reels:1,video:1,'profile.php':1};
 
-          var links = document.querySelectorAll('a[href]');
           for (var i = 0; i < links.length; i++) {
             var el = links[i];
             var href = el.getAttribute('href') || '';
+            // Chỉ lấy href dạng /slug hoặc full fb URL
             var m = href.match(/(?:https?:\\/\\/(?:www\\.)?facebook\\.com)?\\/([A-Za-z0-9._%-]{3,80})\\/?(?:\\?.*)?$/);
             if (!m) continue;
             var slug = m[1];
-            if (SYSTEM[slug] || seen[slug]) continue;
+            if (seen[slug]) continue;
 
+            // Lấy tên từ span đầu tiên có text hợp lệ
             var name = '';
             var spans = el.querySelectorAll('span');
             for (var j = 0; j < spans.length; j++) {
@@ -298,7 +293,7 @@ async function getIdentities(onLog) {
 
             seen[slug] = 1;
             results.push({ id: 'page_' + slug, name: name, href: '/' + slug, type: 'page' });
-            if (results.length >= 20) break;
+            if (results.length >= 30) break;
           }
           return results;
         })()
@@ -307,7 +302,7 @@ async function getIdentities(onLog) {
       const existingNames = new Set(identities.map(i => i.name.toLowerCase()));
       const unique = fbPages.filter(p => !existingNames.has(p.name.toLowerCase()));
       identities.push(...unique);
-      onLog?.(`Tìm thấy ${unique.length} Page, tên cá nhân: ${personalName || '?'}`);
+      onLog?.(`Tên cá nhân: "${personalName}" — ${unique.length} Page`);
     } catch (e) {
       onLog?.('Không lấy được Page: ' + e.message);
     }
