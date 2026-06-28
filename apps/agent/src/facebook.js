@@ -162,21 +162,24 @@ function clearSession() {
 }
 
 async function loginFacebook(onLog, onShowBrowser, onHideBrowser) {
-  onLog('Đang mở Facebook để đăng nhập...');
+  onLog('Đang kết nối Facebook...');
   try {
     const ctx   = await getOrCreateContext();
     const pages = ctx.pages();
     const page  = pages.length > 0 ? pages[0] : await ctx.newPage();
 
-    onShowBrowser?.(); // Hiện cửa sổ browser trước khi navigate
+    // Navigate trong khi window còn ẩn — tránh conflict với Electron
     await page.goto('https://www.facebook.com', { waitUntil: 'domcontentloaded', timeout: 30000 });
 
     if (!isLoggedOut(page.url())) {
       onLog('Đã đăng nhập Facebook rồi!');
-      onHideBrowser?.();
       return { ok: true, alreadyLoggedIn: true };
     }
-    onLog('Vui lòng đăng nhập Facebook trên cửa sổ vừa mở...');
+
+    // Page đã load xong rồi mới show window → không abort navigation
+    onShowBrowser?.();
+    onLog('Vui lòng đăng nhập Facebook trong cửa sổ vừa mở...');
+
     await page.waitForFunction(
       () => !window.location.href.includes('/login') && !window.location.href.includes('/checkpoint'),
       { timeout: 5 * 60 * 1000 }

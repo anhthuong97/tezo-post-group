@@ -48,9 +48,6 @@ ipcMain.handle('show-browser', () => {
 
 function showBrowser() {
   if (hidden && !hidden.isDestroyed()) {
-    hidden.setTitle('Đăng nhập Facebook — TeZo Agent');
-    hidden.setSize(1200, 800);
-    hidden.center();
     hidden.show();
     hidden.focus();
   }
@@ -127,7 +124,7 @@ function openPopup() {
 
 app.whenReady().then(async () => {
   // Window ẩn để giữ CDP / Chromium luôn sẵn sàng
-  hidden = new BrowserWindow({ show: false, width: 800, height: 600 });
+  hidden = new BrowserWindow({ show: false, width: 1200, height: 800, title: 'TeZo Agent Browser' });
   hidden.loadURL('about:blank');
 
   // Tray icon
