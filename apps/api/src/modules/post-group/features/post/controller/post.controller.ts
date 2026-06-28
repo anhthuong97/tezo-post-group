@@ -32,13 +32,13 @@ export class PostController {
   }
 
   @Get('status')
-  status(@CurrentUser() u: CurrentUserData) {
-    return { success: true, status: this.post.getStatus(u.userId) };
+  async status(@CurrentUser() u: CurrentUserData) {
+    return { success: true, status: await this.post.getStatus(u.userId) };
   }
 
   @Get('log')
-  log(@CurrentUser() u: CurrentUserData) {
-    return { success: true, log: this.post.getLog(u.userId) };
+  async log(@CurrentUser() u: CurrentUserData) {
+    return { success: true, log: await this.post.getLog(u.userId) };
   }
 
   @Post('cancel')
