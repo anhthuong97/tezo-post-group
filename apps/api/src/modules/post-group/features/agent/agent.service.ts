@@ -27,11 +27,18 @@ export class AgentService {
     }
   }
 
-  heartbeat(userId: number)                           { return this.repo.upsertHeartbeat(userId); }
-  isOnline(userId: number)                            { return this.repo.isAgentOnline(userId); }
-  getPendingTasks(userId: number)                     { return this.repo.getPendingTasks(userId); }
-  startTask(taskId: number)                           { return this.repo.startTask(taskId); }
-  completeTask(id: number, result: any, logs: string[]) { return this.repo.completeTask(id, result, logs); }
+  heartbeat(userId: number)                              { return this.repo.upsertHeartbeat(userId); }
+  isOnline(userId: number)                               { return this.repo.isAgentOnline(userId); }
+  getPendingTasks(userId: number)                        { return this.repo.getPendingTasks(userId); }
+  startTask(taskId: number)                              { return this.repo.startTask(taskId); }
+  updateTaskProgress(taskId: number, logs: string[])     { return this.repo.updateTaskProgress(taskId, logs); }
+  completeTask(id: number, result: any, logs: string[])  { return this.repo.completeTask(id, result, logs); }
   createTask(userId: number, type: string, payload: any) { return this.repo.createTask(userId, type, payload); }
-  getTaskHistory(userId: number)                      { return this.repo.getTasksByUser(userId); }
+  getTaskHistory(userId: number)                         { return this.repo.getTasksByUser(userId); }
+  getTaskById(taskId: number)                            { return this.repo.getTaskById(taskId); }
+  getLatestTaskByType(userId: number, type: string)      { return this.repo.getLatestTaskByType(userId, type); }
+
+  saveGroups(userId: number, groups: any[])  { return this.repo.saveGroups(userId, groups); }
+  getGroups(userId: number)                  { return this.repo.getGroups(userId); }
+  getGroupsSyncedAt(userId: number)          { return this.repo.getSyncedAt(userId); }
 }

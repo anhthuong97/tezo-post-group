@@ -24,7 +24,7 @@ async function bootstrap() {
 
   app.use(
     session({
-      store: new PgSession({ pool, tableName: 'session_post_group' }),
+      store: new PgSession({ pool, tableName: 'pg_sessions' }),
       secret: process.env.SESSION_SECRET || 'dev-secret-change-me',
       resave: false,
       saveUninitialized: false,
@@ -48,7 +48,7 @@ async function bootstrap() {
 
   const port = process.env.PORT || 3000;
   const server = await app.listen(port);
-  server.setTimeout(3 * 60 * 1000); // 3 phút — cho phép Playwright thao tác chậm mạng
+  server.setTimeout(3 * 60 * 1000);
   console.log(`API running at http://localhost:${port}`);
 }
 

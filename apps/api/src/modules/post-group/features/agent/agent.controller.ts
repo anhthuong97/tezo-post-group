@@ -1,10 +1,11 @@
-import { Controller, Get, Post, Param, Body, Headers, ParseIntPipe, HttpCode, UseGuards } from '@nestjs/common';
+import {
+  Controller, Get, Post, Param, Body,
+  Headers, ParseIntPipe, HttpCode, UseGuards,
+  Injectable, CanActivate, ExecutionContext, UnauthorizedException,
+} from '@nestjs/common';
 import { AgentService } from './agent.service';
 import { SessionGuard } from '../../../../core/guards/session.guard';
 import { CurrentUser, CurrentUserData } from '../../../../core/decorators/current-user.decorator';
-
-// Guard dùng JWT token cho agent (khác với session cookie)
-import { Injectable, CanActivate, ExecutionContext, UnauthorizedException } from '@nestjs/common';
 
 @Injectable()
 class AgentTokenGuard implements CanActivate {
@@ -24,7 +25,7 @@ class AgentTokenGuard implements CanActivate {
 export class AgentController {
   constructor(private readonly svc: AgentService) {}
 
-  // ─── Agent endpoints (JWT) ────────────────────────────────────────────────
+  // ─── Agent endpoints (JWT Bearer) ────────────────────────
 
   @Post('auth')
   @HttpCode(200)
@@ -33,15 +34,13 @@ export class AgentController {
     try {
       const result = await this.svc.authenticate(username, password);
       return { token: result.token };
-    } catch (e: any) {
-      return { error: e.message };
-    }
+    } catch (e: any) { return { error: e.message }; }
   }
 
   @Post('heartbeat')
   @HttpCode(200)
   async heartbeat(@Headers('authorization') auth: string) {
-    const token   = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
+    const token = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
     if (!token) return { error: 'Unauthorized' };
     const payload = this.svc.verifyToken(token);
     await this.svc.heartbeat(payload.userId);
@@ -50,7 +49,7 @@ export class AgentController {
 
   @Get('tasks')
   async getTasks(@Headers('authorization') auth: string) {
-    const token   = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
+    const token = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
     if (!token) return { tasks: [] };
     const payload = this.svc.verifyToken(token);
     const tasks   = await this.svc.getPendingTasks(payload.userId);
@@ -61,6 +60,16 @@ export class AgentController {
   @HttpCode(200)
   async startTask(@Param('id', ParseIntPipe) id: number) {
     await this.svc.startTask(id);
+    return { ok: true };
+  }
+
+  @Post('tasks/:id/progress')
+  @HttpCode(200)
+  async progressTask(
+    @Param('id', ParseIntPipe) id: number,
+    @Body('logs') logs: string[],
+  ) {
+    await this.svc.updateTaskProgress(id, logs || []);
     return { ok: true };
   }
 
@@ -75,13 +84,27 @@ export class AgentController {
     return { ok: true };
   }
 
-  // ─── Web UI endpoints (Session) ───────────────────────────────────────────
+  @Post('groups')
+  @HttpCode(200)
+  async receiveGroups(
+    @Headers('authorization') auth: string,
+    @Body('groups') groups: any[],
+  ) {
+    const token = auth?.startsWith('Bearer ') ? auth.slice(7) : null;
+    if (!token) return { error: 'Unauthorized' };
+    const payload = this.svc.verifyToken(token);
+    await this.svc.saveGroups(payload.userId, groups || []);
+    return { ok: true, saved: (groups || []).length };
+  }
+
+  // ─── Web UI endpoints (Session) ──────────────────────────
 
   @Get('status')
   @UseGuards(SessionGuard)
   async getStatus(@CurrentUser() u: CurrentUserData) {
-    const online = await this.svc.isOnline(u.userId);
-    return { online };
+    const online    = await this.svc.isOnline(u.userId);
+    const syncedAt  = await this.svc.getGroupsSyncedAt(u.userId);
+    return { online, syncedAt };
   }
 
   @Get('history')

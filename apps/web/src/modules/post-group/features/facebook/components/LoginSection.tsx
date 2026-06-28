@@ -1,116 +1,71 @@
 'use client';
-import { Loader2, RefreshCw } from 'lucide-react';
-import { Button } from '@/shared/components/Button';
-import type { LoginMode } from '../types/facebook.types';
+import { Loader2, RefreshCw, Wifi, WifiOff } from 'lucide-react';
+import { groupsApi } from '../../groups/api/groups.api';
+import { useState } from 'react';
 
 interface LoginSectionProps {
-  mode: LoginMode;
-  loading: boolean;
-  identitySwitching: boolean;
-  error: string;
-  identityLoading: boolean;
-  identityFailed: boolean;
-  currentIdentity: string;
-  switchable: string[];
-  onOpen: () => void;
-  onLogout: () => void;
-  onSwitchIdentity: (name: string) => void;
-  onReloadIdentity: () => void;
+  agentOnline: boolean;
+  syncedAt: string | null;
+  onSyncGroups: () => void;
 }
 
-export function LoginSection({
-  mode, loading, identitySwitching, error,
-  identityLoading, identityFailed, currentIdentity, switchable,
-  onOpen, onLogout, onSwitchIdentity, onReloadIdentity,
-}: LoginSectionProps) {
-  const isLoggedIn = mode === 'logged-in';
-  const isWaiting  = mode === 'waiting';
+export function LoginSection({ agentOnline, syncedAt, onSyncGroups }: LoginSectionProps) {
+  const [syncing, setSyncing] = useState(false);
+  const [syncError, setSyncError] = useState('');
 
-  const allIdentities = currentIdentity
-    ? [currentIdentity, ...switchable.filter((s) => s !== currentIdentity)]
-    : switchable;
-
-  const identityReady = !identityLoading && !identityFailed && (!!currentIdentity || switchable.length > 0);
+  const handleSync = async () => {
+    setSyncing(true); setSyncError('');
+    try {
+      await groupsApi.sync();
+      // Sau khi dispatch task, chờ agent fetch xong rồi web tự reload groups
+      setTimeout(onSyncGroups, 3000);
+    } catch (e: any) {
+      setSyncError(e.message || 'Lỗi đồng bộ nhóm');
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
-        <p className="section-title mb-0">Facebook</p>
-        <div className="flex items-center gap-2">
-          {isLoggedIn && (
-            <span className="inline-flex items-center gap-1 text-xs text-green-600 font-medium">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-500 inline-block" />
-              Đã đăng nhập
-            </span>
-          )}
-          {isLoggedIn ? (
-            <Button variant="danger" loading={loading} onClick={onLogout} className="text-xs px-3 py-1 h-7">
-              Đăng xuất FB
-            </Button>
-          ) : isWaiting ? (
-            <span className="inline-flex items-center gap-1.5 text-xs text-blue-600 font-medium px-3 py-1">
-              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              Đang đăng nhập...
-            </span>
-          ) : (
-            <Button variant="primary" loading={loading} onClick={onOpen} className="text-xs px-3 py-1 h-7">
-              Đăng nhập Facebook
-            </Button>
-          )}
-        </div>
+        <p className="section-title mb-0">TeZo Agent</p>
+        <span className={`inline-flex items-center gap-1.5 text-xs font-medium px-2 py-0.5 rounded-full ${
+          agentOnline ? 'text-green-700 bg-green-50' : 'text-gray-500 bg-gray-100'
+        }`}>
+          {agentOnline
+            ? <><Wifi className="w-3 h-3" />Đang kết nối</>
+            : <><WifiOff className="w-3 h-3" />Chưa kết nối</>}
+        </span>
       </div>
 
-      {error && <p className="text-red-500 text-xs">{error}</p>}
+      {!agentOnline && (
+        <p className="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+          Hãy mở <strong>TeZo Agent</strong> trên máy tính và đăng nhập để bắt đầu.
+        </p>
+      )}
 
-      {isLoggedIn && (
-        <div>
-          <label className="label">Đăng bài với tư cách</label>
-
-          {identityLoading ? (
-            <div className="input text-xs flex items-center gap-2 text-gray-400 bg-gray-50 pointer-events-none select-none">
-              <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-              Đang xác định...
-            </div>
-
-          ) : identitySwitching ? (
-            <div className="input text-xs flex items-center gap-2 text-blue-500 bg-blue-50 pointer-events-none select-none">
-              <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-              Đang chuyển tư cách...
-            </div>
-
-          ) : identityFailed ? (
-            <div className="input text-xs flex items-center justify-between bg-orange-50 border-orange-200 text-orange-600">
-              <span>Không xác định được tư cách</span>
-              <button type="button" onClick={onReloadIdentity}
-                className="flex items-center gap-1 text-orange-500 hover:text-orange-700 transition-colors shrink-0">
-                <RefreshCw className="w-3.5 h-3.5" />
-                Thử lại
-              </button>
-            </div>
-
-          ) : identityReady ? (
-            <div className="flex gap-1.5">
-              <select value={currentIdentity} onChange={(e) => onSwitchIdentity(e.target.value)}
-                className="input text-xs flex-1">
-                {allIdentities.map((name) => (
-                  <option key={name} value={name}>{name}</option>
-                ))}
-              </select>
-              <button type="button" onClick={onReloadIdentity}
-                className="shrink-0 px-2 rounded-lg border border-gray-200 text-gray-400 hover:text-blue-500 hover:border-blue-300 transition-colors"
-                title="Tải lại tư cách">
-                <RefreshCw className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-          ) : (
-            <div className="input text-xs flex items-center gap-2 text-gray-400 bg-gray-50 pointer-events-none select-none">
-              <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-              Đang xác định...
-            </div>
-          )}
+      {agentOnline && (
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-gray-400">
+            {syncedAt
+              ? `Nhóm đã sync: ${new Date(syncedAt).toLocaleString('vi-VN')}`
+              : 'Chưa có danh sách nhóm'}
+          </span>
+          <button
+            onClick={handleSync}
+            disabled={syncing}
+            className="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 disabled:opacity-50"
+          >
+            {syncing
+              ? <Loader2 className="w-3 h-3 animate-spin" />
+              : <RefreshCw className="w-3 h-3" />}
+            {syncing ? 'Đang tải...' : 'Tải nhóm'}
+          </button>
         </div>
       )}
+
+      {syncError && <p className="text-red-500 text-xs">{syncError}</p>}
     </div>
   );
 }

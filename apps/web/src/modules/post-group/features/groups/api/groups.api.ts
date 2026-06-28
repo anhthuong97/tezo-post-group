@@ -3,5 +3,5 @@ import { ENDPOINTS } from '@/shared/lib/constants';
 
 export const groupsApi = {
   list: () => api.get(ENDPOINTS.groups.list),
-  open: (url: string) => api.post(ENDPOINTS.groups.open, { url }),
+  sync: () => api.post(ENDPOINTS.groups.sync, {}),
 };

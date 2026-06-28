@@ -2,16 +2,13 @@ import { Injectable, Inject } from '@nestjs/common';
 import { Pool } from 'pg';
 import { PG_POOL } from '../../../../../core/database/database.module';
 
-// Schema gốc: api_keys(employee_id, provider, api_key, is_active, updated_at)
-// provider = 'gemini' | 'openai' | 'priority'
-
 @Injectable()
 export class ApiKeyRepository {
   constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
 
   async getByEmployeeId(employeeId: number): Promise<{ gemini_key: string | null; openai_key: string | null; ai_priority: string }> {
     const { rows } = await this.pool.query(
-      'SELECT provider, api_key FROM api_keys WHERE employee_id = $1',
+      'SELECT provider, api_key FROM pg_api_keys WHERE employee_id = $1',
       [employeeId],
     );
     const map: Record<string, string> = Object.fromEntries(rows.map((r) => [r.provider, r.api_key]));
@@ -25,14 +22,14 @@ export class ApiKeyRepository {
   async upsertKey(employeeId: number, provider: 'gemini' | 'openai', apiKey: string | null): Promise<void> {
     if (apiKey) {
       await this.pool.query(
-        `INSERT INTO api_keys (employee_id, provider, api_key)
+        `INSERT INTO pg_api_keys (employee_id, provider, api_key)
          VALUES ($1, $2, $3)
          ON CONFLICT (employee_id, provider) DO UPDATE SET api_key = $3, updated_at = NOW()`,
         [employeeId, provider, apiKey],
       );
     } else {
       await this.pool.query(
-        'DELETE FROM api_keys WHERE employee_id = $1 AND provider = $2',
+        'DELETE FROM pg_api_keys WHERE employee_id = $1 AND provider = $2',
         [employeeId, provider],
       );
     }
@@ -45,7 +42,7 @@ export class ApiKeyRepository {
 
   async updatePriority(employeeId: number, priority: 'gemini' | 'openai'): Promise<void> {
     await this.pool.query(
-      `INSERT INTO api_keys (employee_id, provider, api_key)
+      `INSERT INTO pg_api_keys (employee_id, provider, api_key)
        VALUES ($1, 'priority', $2)
        ON CONFLICT (employee_id, provider) DO UPDATE SET api_key = $2, updated_at = NOW()`,
       [employeeId, priority],

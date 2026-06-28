@@ -1,11 +1,12 @@
 const axios = require('axios');
-const { runPostTask, clearSession } = require('./facebook');
+const { fetchGroups, runPostTask } = require('./facebook');
 
-let settings    = null;
-let token       = null;
-let pollTimer   = null;
-let running     = false;
-let statusInfo  = { connected: false, error: null, currentTask: null };
+let settings       = null;
+let token          = null;
+let pollTimer      = null;
+let heartbeatTimer = null;
+let running        = false;
+let statusInfo     = { connected: false, error: null, currentTask: null };
 let onStatusChange = null;
 
 function setStatus(patch) {
@@ -21,7 +22,7 @@ function api(method, path, data) {
     url: `${settings.serverUrl}/api/post-group/agent${path}`,
     data,
     headers: token ? { Authorization: `Bearer ${token}` } : {},
-    timeout: 10000,
+    timeout: 15000,
   });
 }
 
@@ -42,29 +43,38 @@ async function pollAndExecute() {
   if (running) return;
 
   try {
-    const res = await api('get', '/tasks');
+    const res   = await api('get', '/tasks');
     const tasks = res.data?.tasks || [];
 
     for (const task of tasks) {
       running = true;
       setStatus({ currentTask: { id: task.id, type: task.type } });
+      const logs = [];
+
+      const onLog = async (msg) => {
+        logs.push(msg);
+        setStatus({ currentTask: { id: task.id, type: task.type, lastLog: msg } });
+        // Gửi progress lên VPS để web thấy realtime
+        api('post', `/tasks/${task.id}/progress`, { logs }).catch(() => {});
+      };
 
       try {
         await api('post', `/tasks/${task.id}/start`);
 
-        const logs = [];
-        const onLog = (msg) => {
-          logs.push(msg);
-          setStatus({ currentTask: { id: task.id, type: task.type, lastLog: msg } });
-        };
-
-        const onNeedLogin = () => {
-          setStatus({ needLogin: true });
-        };
-
         let result;
+
         if (task.type === 'post_groups') {
+          const onNeedLogin = () => setStatus({ needLogin: true });
           result = await runPostTask(task, onLog, onNeedLogin);
+
+        } else if (task.type === 'fetch_groups') {
+          const fetchResult = await fetchGroups(onLog);
+          if (!fetchResult.error && fetchResult.groups.length > 0) {
+            await api('post', '/groups', { groups: fetchResult.groups });
+            onLog(`Đã đồng bộ ${fetchResult.groups.length} nhóm lên server.`);
+          }
+          result = fetchResult;
+
         } else {
           result = { error: `Task type không hỗ trợ: ${task.type}` };
         }
@@ -72,8 +82,7 @@ async function pollAndExecute() {
         await api('post', `/tasks/${task.id}/done`, { result, logs });
       } catch (err) {
         await api('post', `/tasks/${task.id}/done`, {
-          result: { error: err.message },
-          logs: [],
+          result: { error: err.message }, logs,
         }).catch(() => {});
       } finally {
         running = false;
@@ -84,6 +93,7 @@ async function pollAndExecute() {
     if (err.response?.status === 401) {
       token = null;
       setStatus({ connected: false, error: 'Phiên hết hạn, đang xác thực lại...' });
+      try { await authenticate(); setStatus({ connected: true, error: null }); } catch {}
     }
   }
 }
@@ -103,25 +113,21 @@ async function start(cfg, onStatus) {
     return;
   }
 
-  // Heartbeat mỗi 20s
-  const heartbeatTimer = setInterval(sendHeartbeat, 20_000);
   sendHeartbeat();
+  heartbeatTimer = setInterval(sendHeartbeat, 20_000);
 
-  // Poll task mỗi 5s
-  pollTimer = setInterval(pollAndExecute, 5_000);
   pollAndExecute();
-
-  // Lưu timer để stop
-  start._heartbeatTimer = heartbeatTimer;
+  pollTimer = setInterval(pollAndExecute, 5_000);
 }
 
 function stop() {
   clearInterval(pollTimer);
-  clearInterval(start._heartbeatTimer);
-  pollTimer = null;
-  token     = null;
-  running   = false;
+  clearInterval(heartbeatTimer);
+  pollTimer      = null;
+  heartbeatTimer = null;
+  token          = null;
+  running        = false;
   setStatus({ connected: false, error: null, currentTask: null });
 }
 
-module.exports = { start, stop, getStatus, clearSession };
+module.exports = { start, stop, getStatus };

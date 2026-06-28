@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { authApi } from '@/modules/post-group/features/auth/api/auth.api';
 
@@ -37,42 +37,28 @@ export default function DashboardPage() {
     router.replace('/post-group/login');
   };
 
-  const fb     = useFacebookLogin(() => {});
+  const agent  = useFacebookLogin();
   const groups = useGroups();
   const post   = usePost();
   const ps     = usePostStatus();
 
-  usePolling(ps.pollLogs, 3000, fb.mode === 'logged-in');
-  useEffect(() => { fb.checkSession(); }, []);
+  usePolling(ps.pollLogs, 3000, ps.isPosting);
 
-  const initDoneRef = useRef(false);
+  // Tải nhóm từ DB khi mở trang
   useEffect(() => {
-    if (fb.mode !== 'logged-in') { initDoneRef.current = false; return; }
-    if (initDoneRef.current) return;
-
-    const identityCached = !!fb.currentIdentity;
-    const groupsCurrent  = groups.groupsIdentity === fb.currentIdentity && groups.groups.length > 0;
-
-    if (identityCached && groupsCurrent) { initDoneRef.current = true; return; }
-    initDoneRef.current = true;
-
-    if (!identityCached) {
-      fb.loadIdentities().then((name) => { if (name) groups.loadGroups(name); });
-    } else {
-      groups.loadGroups(fb.currentIdentity);
-    }
-  }, [fb.mode, fb.currentIdentity]);
+    groups.loadGroups();
+  }, []);
 
   const handlePostStarted = () => {
     setStatusOpen(true);
     ps.pollStatus();
   };
 
-  const handleSwitchIdentity = async (name: string) => {
-    if (name === fb.currentIdentity) return;
-    groups.clearGroups();
-    await fb.switchIdentity(name);
-    groups.loadGroups(name);
+  const handleSyncGroups = () => {
+    // Reload nhóm sau khi agent sync xong (delay để agent có thời gian fetch)
+    setTimeout(() => groups.loadGroups(), 5000);
+    setTimeout(() => groups.loadGroups(), 12000);
+    setTimeout(() => groups.loadGroups(), 20000);
   };
 
   return (
@@ -110,18 +96,9 @@ export default function DashboardPage() {
         <div className="flex flex-col w-[380px] shrink-0 border-r border-gray-200 bg-white overflow-hidden">
           <div className="shrink-0 border-b border-gray-100 px-4 py-3">
             <LoginSection
-              mode={fb.mode}
-              loading={fb.loading}
-              error={fb.error}
-              identityLoading={fb.identityLoading}
-              identityFailed={fb.identityFailed}
-              identitySwitching={fb.identitySwitching}
-              currentIdentity={fb.currentIdentity}
-              switchable={fb.switchable}
-              onOpen={fb.openLogin}
-              onLogout={async () => { await fb.logoutFacebook(); groups.clearGroups(); }}
-              onSwitchIdentity={handleSwitchIdentity}
-              onReloadIdentity={fb.loadIdentities}
+              agentOnline={agent.agentOnline}
+              syncedAt={agent.syncedAt}
+              onSyncGroups={handleSyncGroups}
             />
           </div>
           <div className="flex-1 overflow-hidden">
@@ -133,7 +110,7 @@ export default function DashboardPage() {
               onToggle={groups.toggle}
               onSelectAll={groups.selectAll}
               onDeselectAll={groups.deselectAll}
-              onLoad={() => groups.loadGroups(fb.currentIdentity)}
+              onLoad={() => groups.loadGroups()}
               loading={groups.loading}
               error={groups.error}
             />
@@ -159,7 +136,7 @@ export default function DashboardPage() {
             loading={post.loading}
             error={post.error}
             selectedGroups={groups.selectedList}
-            onStartPost={(groups) => post.startPost(groups, fb.currentIdentity)}
+            onStartPost={(groups) => post.startPost(groups, '')}
             onPostStarted={handlePostStarted}
           />
         </div>

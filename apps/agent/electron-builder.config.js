@@ -1,6 +1,7 @@
 module.exports = {
   appId: 'com.tezo.agent',
   productName: 'TeZo Agent',
+  electronVersion: '31.7.7',
   directories: { output: 'dist' },
   files: ['src/**/*', 'assets/**/*', 'node_modules/**/*'],
   win: {

@@ -13,8 +13,7 @@ export function useGroups() {
   const [loading, setLoading]           = useState(false);
   const [error, setError]               = useState('');
 
-  // identity: tư cách đang đăng nhập lúc load — lưu để so sánh cache
-  const loadGroups = useCallback(async (identity: string, onDone?: () => void) => {
+  const loadGroups = useCallback(async (identity = '', onDone?: () => void) => {
     setLoading(true); setError('');
     try {
       const res = await groupsApi.list();

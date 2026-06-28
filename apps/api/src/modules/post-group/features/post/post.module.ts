@@ -1,11 +1,10 @@
 import { Module } from '@nestjs/common';
 import { PostController } from './controller/post.controller';
 import { PostService } from './service/post.service';
-import { FacebookModule } from '../facebook/facebook.module';
-import { IdentityModule } from '../identity/identity.module';
+import { AgentModule } from '../agent/agent.module';
 
 @Module({
-  imports:     [FacebookModule, IdentityModule],
+  imports:     [AgentModule],
   controllers: [PostController],
   providers:   [PostService],
 })

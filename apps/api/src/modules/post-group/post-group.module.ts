@@ -2,7 +2,6 @@ import { Module } from '@nestjs/common';
 import { AuthModule } from './features/auth/auth.module';
 import { FacebookModule } from './features/facebook/facebook.module';
 import { GroupsModule } from './features/groups/groups.module';
-import { IdentityModule } from './features/identity/identity.module';
 import { PostModule } from './features/post/post.module';
 import { AiModule } from './features/ai/ai.module';
 import { ProductModule } from './features/product/product.module';
@@ -15,7 +14,6 @@ import { AgentModule } from './features/agent/agent.module';
     AuthModule,
     FacebookModule,
     GroupsModule,
-    IdentityModule,
     PostModule,
     AiModule,
     ProductModule,

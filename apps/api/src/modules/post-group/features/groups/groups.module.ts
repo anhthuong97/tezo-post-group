@@ -1,11 +1,10 @@
 import { Module } from '@nestjs/common';
 import { GroupsController } from './controller/groups.controller';
 import { GroupsService } from './service/groups.service';
-import { FacebookModule } from '../facebook/facebook.module';
-import { IdentityModule } from '../identity/identity.module';
+import { AgentModule } from '../agent/agent.module';
 
 @Module({
-  imports:     [FacebookModule, IdentityModule],
+  imports:     [AgentModule],
   controllers: [GroupsController],
   providers:   [GroupsService],
 })

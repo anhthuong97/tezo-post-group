@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, UseGuards } from '@nestjs/common';
 import { SessionGuard } from '../../../../../core/guards/session.guard';
 import { CurrentUser, CurrentUserData } from '../../../../../core/decorators/current-user.decorator';
 import { GroupsService } from '../service/groups.service';
@@ -14,14 +14,17 @@ export class GroupsController {
       const data = await this.groups.listGroups(u.userId);
       return { success: true, groups: data };
     } catch (err: any) {
-      return { success: false, error: err.message || 'Lỗi khi tải nhóm', groups: [] };
+      return { success: false, error: err.message, groups: [] };
     }
   }
 
-  @Post('open')
-  async open(@CurrentUser() u: CurrentUserData, @Body('url') url: string) {
-    if (!url) return { success: false, error: 'Thiếu url' };
-    await this.groups.openGroupUrl(u.userId, url);
-    return { success: true };
+  @Post('sync')
+  async sync(@CurrentUser() u: CurrentUserData) {
+    try {
+      const result = await this.groups.syncGroups(u.userId);
+      return { success: true, ...result };
+    } catch (err: any) {
+      return { success: false, error: err.message };
+    }
   }
 }
