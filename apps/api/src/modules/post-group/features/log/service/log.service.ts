@@ -1,15 +1,14 @@
 import { Injectable } from '@nestjs/common';
-import { UserSessionStore } from '../../facebook/infrastructure/user-session.store';
+import { AgentService } from '../../agent/agent.service';
 
 @Injectable()
 export class LogService {
-  constructor(private readonly store: UserSessionStore) {}
+  constructor(private readonly agent: AgentService) {}
 
-  getLogs(userId: number): string[] {
-    return this.store.get(userId).log;
+  async getLogs(userId: number): Promise<string[]> {
+    const task = await this.agent.getLatestTaskByType(userId, 'post_groups');
+    return task?.logs || [];
   }
 
-  clearLogs(userId: number): void {
-    this.store.get(userId).log = [];
-  }
+  clearLogs(_userId: number): void { /* logs nằm trong DB, không cần clear */ }
 }

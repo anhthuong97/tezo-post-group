@@ -9,8 +9,8 @@ export class LogController {
   constructor(private readonly log: LogService) {}
 
   @Get()
-  getLogs(@CurrentUser() u: CurrentUserData) {
-    return { success: true, log: this.log.getLogs(u.userId) };
+  async getLogs(@CurrentUser() u: CurrentUserData) {
+    return { success: true, log: await this.log.getLogs(u.userId) };
   }
 
   @Delete()
