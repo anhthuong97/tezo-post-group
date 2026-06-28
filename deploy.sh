@@ -12,7 +12,7 @@ echo "=========================================="
 echo ""
 
 echo "[1/3] Cap nhat database schema..."
-psql -U postgres -d tezo -f schema.sql
+sudo -u postgres psql -d tezo -f schema.sql
 echo "      Schema OK."
 
 echo "[2/3] Build..."
