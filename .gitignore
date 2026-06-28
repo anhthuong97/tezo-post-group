@@ -1,4 +1,5 @@
 node_modules/
+apps/agent/package-lock.json
 dist/
 .next/
 .turbo/
