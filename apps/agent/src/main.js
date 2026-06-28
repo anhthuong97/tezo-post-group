@@ -130,9 +130,11 @@ async function doLogin(onLog) {
   });
 }
 
-app.showBrowser = showBrowser;
-app.hideBrowser = hideBrowser;
-app.doLogin     = doLogin;
+app.showBrowser   = showBrowser;
+app.hideBrowser   = hideBrowser;
+app.doLogin       = doLogin;
+app.getFbWindow   = () => (fbWindow && !fbWindow.isDestroyed() ? fbWindow : null);
+app.createFbWindow = createFbWindow;
 
 // ─── IPC handlers ─────────────────────────────────────────────────────────
 

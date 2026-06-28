@@ -131,6 +131,10 @@ async function pollAndExecute() {
           }
           result = fetchResult;
 
+        } else if (task.type === 'sync_identities') {
+          await syncIdentities(onLog);
+          result = { ok: true };
+
         } else if (task.type === 'switch_identity') {
           const { identityId } = task.payload || {};
           if (identityId) {

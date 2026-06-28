@@ -1,5 +1,5 @@
 'use client';
-import { Loader2, RefreshCw, Wifi, WifiOff, ChevronDown, LogIn, Monitor, Trash2 } from 'lucide-react';
+import { Loader2, RefreshCw, Wifi, WifiOff, ChevronDown, LogIn, Monitor, Trash2, Users } from 'lucide-react';
 import { groupsApi } from '../../groups/api/groups.api';
 import { api } from '@/shared/lib/api-client';
 import { ENDPOINTS } from '@/shared/lib/constants';
@@ -24,9 +24,10 @@ export function LoginSection({
   const [syncing, setSyncing]           = useState(false);
   const [syncError, setSyncError]       = useState('');
   const [showDropdown, setShowDropdown] = useState(false);
-  const [loggingIn, setLoggingIn]       = useState(false);
-  const [loginMsg, setLoginMsg]         = useState('');
-  const [actionMsg, setActionMsg]       = useState('');
+  const [loggingIn, setLoggingIn]             = useState(false);
+  const [loginMsg, setLoginMsg]               = useState('');
+  const [actionMsg, setActionMsg]             = useState('');
+  const [syncingIdentities, setSyncingIdents] = useState(false);
 
   const activeId = currentIdentity?.id || 'personal';
 
@@ -83,6 +84,20 @@ export function LoginSection({
       setSyncError(e.message || 'Lỗi đồng bộ nhóm');
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const handleSyncIdentities = async () => {
+    setSyncingIdents(true);
+    try {
+      const res = await dispatch('sync_identities');
+      showAction(res?.success
+        ? 'Đang tải lại tư cách... (mất ~10-20 giây)'
+        : (res?.error || 'Agent chưa kết nối.'));
+    } catch (e: any) {
+      showAction(e.message || 'Lỗi');
+    } finally {
+      setSyncingIdents(false);
     }
   };
 
@@ -155,7 +170,20 @@ export function LoginSection({
           {/* Identity selector */}
           {identities.length > 0 && (
             <div className="relative">
-              <p className="text-[11px] text-gray-400 mb-1 uppercase tracking-wide font-medium">Đăng bài với tư cách</p>
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-[11px] text-gray-400 uppercase tracking-wide font-medium">Đăng bài với tư cách</p>
+                <button
+                  onClick={handleSyncIdentities}
+                  disabled={syncingIdentities}
+                  className="inline-flex items-center gap-1 text-[11px] text-blue-500 hover:text-blue-700 disabled:opacity-50"
+                  title="Tải lại danh sách tư cách từ Facebook"
+                >
+                  {syncingIdentities
+                    ? <Loader2 className="w-3 h-3 animate-spin" />
+                    : <Users className="w-3 h-3" />}
+                  Tải lại tư cách
+                </button>
+              </div>
               <button
                 onClick={() => setShowDropdown(v => !v)}
                 disabled={switching}
