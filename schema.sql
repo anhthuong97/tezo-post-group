@@ -78,3 +78,13 @@ CREATE TABLE IF NOT EXISTS agent_tasks (
 );
 
 CREATE INDEX IF NOT EXISTS idx_agent_tasks_user_status ON agent_tasks (user_id, status);
+
+-- ── Phân quyền ──────────────────────────────────────────────
+DO $$
+BEGIN
+  IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'admin') THEN
+    GRANT ALL PRIVILEGES ON ALL TABLES    IN SCHEMA public TO admin;
+    GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO admin;
+  END IF;
+END
+$$;
