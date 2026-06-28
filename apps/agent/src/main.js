@@ -8,6 +8,10 @@ const { clearSession, loginFacebook } = require('./facebook');
 app.commandLine.appendSwitch('remote-debugging-port', '9222');
 app.commandLine.appendSwitch('remote-debugging-address', '127.0.0.1');
 
+// Dùng Chrome user agent — tránh Facebook nhận ra Electron và trả về giao diện mobile
+const CHROME_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+app.userAgentFallback = CHROME_UA;
+
 let tray      = null;
 let popup     = null;
 let hidden    = null; // window ẩn để giữ Chromium sống

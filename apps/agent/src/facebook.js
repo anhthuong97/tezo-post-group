@@ -4,6 +4,8 @@ const fs   = require('fs');
 const { app } = require('electron');
 
 const SESSION_PATH = path.join(app.getPath('userData'), 'fb-session.json');
+const CHROME_UA    = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+const VIEWPORT     = { width: 1280, height: 800 };
 
 let browser = null;
 
@@ -16,10 +18,21 @@ async function ensureBrowser() {
 async function getOrCreateContext() {
   const b        = await ensureBrowser();
   const contexts = b.contexts();
-  if (contexts.length > 0) return contexts[0];
-  const opts = fs.existsSync(SESSION_PATH)
-    ? { storageState: SESSION_PATH, locale: 'vi-VN' }
-    : { locale: 'vi-VN' };
+  if (contexts.length > 0) {
+    const ctx = contexts[0];
+    // Đảm bảo các page hiện có dùng đúng viewport + UA
+    for (const page of ctx.pages()) {
+      await page.setViewportSize(VIEWPORT).catch(() => {});
+      await page.setExtraHTTPHeaders({ 'User-Agent': CHROME_UA }).catch(() => {});
+    }
+    return ctx;
+  }
+  const opts = {
+    userAgent: CHROME_UA,
+    viewport:  VIEWPORT,
+    locale:    'vi-VN',
+    ...(fs.existsSync(SESSION_PATH) ? { storageState: SESSION_PATH } : {}),
+  };
   return b.newContext(opts);
 }
 
