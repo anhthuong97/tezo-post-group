@@ -96,12 +96,11 @@ export class AgentRepository {
 
   // ─── Identities ───────────────────────────────────────────
   async saveIdentities(userId: number, identities: Array<{ id: string; name: string; type: string; href?: string }>): Promise<void> {
+    await this.pool.query('DELETE FROM pg_identities WHERE user_id = $1', [userId]);
     for (const item of identities) {
       await this.pool.query(
         `INSERT INTO pg_identities (user_id, identity_id, name, type, href, synced_at)
-         VALUES ($1, $2, $3, $4, $5, NOW())
-         ON CONFLICT (user_id, identity_id) DO UPDATE
-           SET name=$3, type=$4, href=$5, synced_at=NOW()`,
+         VALUES ($1, $2, $3, $4, $5, NOW())`,
         [userId, item.id, item.name, item.type, item.href || null],
       );
     }

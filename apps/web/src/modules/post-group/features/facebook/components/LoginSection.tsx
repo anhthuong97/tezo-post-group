@@ -1,5 +1,5 @@
 'use client';
-import { Loader2, RefreshCw, Wifi, WifiOff, ChevronDown, LogIn, Monitor, Trash2, Users } from 'lucide-react';
+import { Loader2, RefreshCw, Wifi, WifiOff, ChevronDown, LogIn, LogOut, Monitor } from 'lucide-react';
 import { groupsApi } from '../../groups/api/groups.api';
 import { api } from '@/shared/lib/api-client';
 import { ENDPOINTS } from '@/shared/lib/constants';
@@ -29,7 +29,8 @@ export function LoginSection({
   const [actionMsg, setActionMsg]             = useState('');
   const [syncingIdentities, setSyncingIdents] = useState(false);
 
-  const activeId = currentIdentity?.id || 'personal';
+  const activeId   = currentIdentity?.id || 'personal';
+  const isLoggedIn = identities.length > 0;
 
   const dispatch = async (type: string) => {
     const res: any = await api.post(ENDPOINTS.agent.dispatch, { type, payload: {} });
@@ -67,12 +68,12 @@ export function LoginSection({
     }
   };
 
-  const handleClearSession = async () => {
-    if (!confirm('Xóa session Facebook? Agent sẽ cần đăng nhập lại.')) return;
+  const handleLogout = async () => {
+    if (!confirm('Đăng xuất Facebook? Cần đăng nhập lại để tiếp tục.')) return;
     try {
       const res = await dispatch('clear_session');
-      showAction(res?.success ? 'Đã xóa session.' : (res?.error || 'Agent chưa kết nối.'));
-    } catch {}
+      showAction(res?.success ? 'Đã đăng xuất Facebook.' : (res?.error || 'Agent chưa kết nối.'));
+    } catch (e: any) { showAction(e.message || 'Lỗi'); }
   };
 
   const handleSync = async () => {
@@ -126,37 +127,39 @@ export function LoginSection({
 
       {agentOnline && (
         <>
-          {/* 3 nút hành động */}
+          {/* Login / Logout + Show Browser */}
           <div className="flex gap-1.5">
-            <button
-              onClick={handleLoginFacebook}
-              disabled={loggingIn}
-              className="flex-1 flex items-center justify-center gap-1.5 py-2 px-2
-                         bg-[#1877f2] hover:bg-[#1561d4] text-white text-xs font-semibold
-                         rounded-lg transition-colors disabled:opacity-60"
-            >
-              {loggingIn ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LogIn className="w-3.5 h-3.5" />}
-              {loggingIn ? 'Đang mở...' : 'Đăng nhập FB'}
-            </button>
+            {!isLoggedIn ? (
+              <button
+                onClick={handleLoginFacebook}
+                disabled={loggingIn}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2 px-2
+                           bg-[#1877f2] hover:bg-[#1561d4] text-white text-xs font-semibold
+                           rounded-lg transition-colors disabled:opacity-60"
+              >
+                {loggingIn ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <LogIn className="w-3.5 h-3.5" />}
+                {loggingIn ? 'Đang mở...' : 'Đăng nhập FB'}
+              </button>
+            ) : (
+              <button
+                onClick={handleLogout}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2 px-2
+                           bg-red-50 hover:bg-red-100 text-red-600 text-xs font-semibold
+                           rounded-lg transition-colors"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                Đăng xuất FB
+              </button>
+            )}
             <button
               onClick={handleShowBrowser}
               className="flex items-center justify-center gap-1.5 py-2 px-3
                          bg-gray-100 hover:bg-gray-200 text-gray-700 text-xs font-semibold
                          rounded-lg transition-colors"
-              title="Hiện cửa sổ browser của agent"
+              title="Hiện cửa sổ browser"
             >
               <Monitor className="w-3.5 h-3.5" />
               Hiện Browser
-            </button>
-            <button
-              onClick={handleClearSession}
-              className="flex items-center justify-center gap-1.5 py-2 px-3
-                         bg-red-50 hover:bg-red-100 text-red-600 text-xs font-semibold
-                         rounded-lg transition-colors"
-              title="Xóa session Facebook, cần đăng nhập lại"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              Xóa session
             </button>
           </div>
 
@@ -175,13 +178,12 @@ export function LoginSection({
                 <button
                   onClick={handleSyncIdentities}
                   disabled={syncingIdentities}
-                  className="inline-flex items-center gap-1 text-[11px] text-blue-500 hover:text-blue-700 disabled:opacity-50"
+                  className="p-1 text-gray-400 hover:text-blue-600 disabled:opacity-50 rounded transition-colors"
                   title="Tải lại danh sách tư cách từ Facebook"
                 >
                   {syncingIdentities
-                    ? <Loader2 className="w-3 h-3 animate-spin" />
-                    : <Users className="w-3 h-3" />}
-                  Tải lại tư cách
+                    ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    : <RefreshCw className="w-3.5 h-3.5" />}
                 </button>
               </div>
               <button

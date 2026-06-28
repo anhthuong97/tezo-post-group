@@ -1,5 +1,5 @@
 const axios = require('axios');
-const { fetchGroupsForIdentity, getIdentities } = require('./facebook');
+const { fetchGroupsForIdentity, getIdentities, switchIdentityOnBrowser } = require('./facebook');
 
 let settings          = null;
 let token             = null;
@@ -113,6 +113,9 @@ async function pollAndExecute() {
         } else if (task.type === 'clear_session') {
           const { clearSession } = require('./facebook');
           clearSession();
+          cachedIdentities = [];
+          setStatus({ identities: [] });
+          await api('post', '/identities', { identities: [], activeIdentityId: null }).catch(() => {});
           onLog('Đã xóa session Facebook.');
           result = { ok: true };
 
@@ -138,17 +141,27 @@ async function pollAndExecute() {
         } else if (task.type === 'switch_identity') {
           const { identityId } = task.payload || {};
           if (identityId) {
-            currentIdentityId = identityId;
-            setStatus({ currentIdentityId });
-            await api('post', '/identities', { identities: cachedIdentities, activeIdentityId: identityId });
-            onLog(`Đã chuyển sang tư cách: ${identityId}`);
-            // Fetch groups trực tiếp, không qua /dispatch (sai auth)
-            onLog('Đang tải nhóm...');
-            const identity    = cachedIdentities.find(i => i.id === identityId);
-            const fetchResult = await fetchGroupsForIdentity(identityId, identity?.href, onLog);
-            if (!fetchResult.error && fetchResult.groups?.length > 0) {
-              await api('post', '/groups', { groups: fetchResult.groups, identityId });
-              onLog(`Đồng bộ ${fetchResult.groups.length} nhóm thành công.`);
+            const identity = cachedIdentities.find(i => i.id === identityId);
+
+            // Thực hiện chuyển tư cách trên browser
+            const switchResult = await switchIdentityOnBrowser(
+              identityId, identity?.name, identity?.href, onLog
+            );
+
+            if (!switchResult?.error) {
+              currentIdentityId = identityId;
+              setStatus({ currentIdentityId });
+              await api('post', '/identities', { identities: cachedIdentities, activeIdentityId: identityId });
+
+              // Tải nhóm cho tư cách mới
+              onLog('Đang tải nhóm...');
+              const fetchResult = await fetchGroupsForIdentity(identityId, identity?.href, onLog);
+              if (!fetchResult.error && fetchResult.groups?.length > 0) {
+                await api('post', '/groups', { groups: fetchResult.groups, identityId });
+                onLog(`Đồng bộ ${fetchResult.groups.length} nhóm thành công.`);
+              }
+            } else {
+              onLog(`Lỗi chuyển tư cách: ${switchResult.error}`);
             }
           }
           result = { ok: true };
