@@ -161,15 +161,19 @@ function clearSession() {
   browser = null;
 }
 
-async function loginFacebook(onLog) {
+async function loginFacebook(onLog, onShowBrowser, onHideBrowser) {
   onLog('Đang mở Facebook để đăng nhập...');
   try {
     const ctx   = await getOrCreateContext();
     const pages = ctx.pages();
     const page  = pages.length > 0 ? pages[0] : await ctx.newPage();
+
+    onShowBrowser?.(); // Hiện cửa sổ browser trước khi navigate
     await page.goto('https://www.facebook.com', { waitUntil: 'domcontentloaded', timeout: 30000 });
+
     if (!isLoggedOut(page.url())) {
       onLog('Đã đăng nhập Facebook rồi!');
+      onHideBrowser?.();
       return { ok: true, alreadyLoggedIn: true };
     }
     onLog('Vui lòng đăng nhập Facebook trên cửa sổ vừa mở...');
@@ -178,9 +182,11 @@ async function loginFacebook(onLog) {
       { timeout: 5 * 60 * 1000 }
     );
     await ctx.storageState({ path: SESSION_PATH });
+    onHideBrowser?.();
     onLog('Đăng nhập Facebook thành công!');
     return { ok: true };
   } catch (err) {
+    onHideBrowser?.();
     onLog('Lỗi đăng nhập: ' + err.message);
     return { error: err.message };
   }

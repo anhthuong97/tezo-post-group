@@ -57,17 +57,19 @@ async function syncIdentities(onLog) {
   }
 }
 
-// Sau khi đăng nhập FB: sync identities + auto fetch groups
+// Sau khi đăng nhập FB: sync identities + fetch groups trực tiếp
 async function triggerAfterLogin(onLog) {
   if (!token) return;
   try {
     await syncIdentities(onLog);
-    // Tự tạo task fetch_groups cho identity hiện tại
-    await api('post', '/dispatch', {
-      type: 'fetch_groups',
-      payload: { identityId: currentIdentityId },
-    });
-    onLog?.('Đang tải nhóm tự động...');
+
+    onLog?.('Đang tải nhóm...');
+    const identity    = cachedIdentities.find(i => i.id === currentIdentityId);
+    const fetchResult = await fetchGroupsForIdentity(currentIdentityId, identity?.href, onLog);
+    if (!fetchResult.error && fetchResult.groups?.length > 0) {
+      await api('post', '/groups', { groups: fetchResult.groups, identityId: currentIdentityId });
+      onLog?.(`Đã đồng bộ ${fetchResult.groups.length} nhóm.`);
+    }
   } catch (err) {
     onLog?.('Lỗi sau đăng nhập: ' + err.message);
   }
@@ -98,7 +100,8 @@ async function pollAndExecute() {
 
         if (task.type === 'login_facebook') {
           const { loginFacebook } = require('./facebook');
-          const loginResult = await loginFacebook(onLog);
+          const { app } = require('electron');
+          const loginResult = await loginFacebook(onLog, app.showBrowser, app.hideBrowser);
           if (loginResult.ok) {
             await triggerAfterLogin(onLog);
           }

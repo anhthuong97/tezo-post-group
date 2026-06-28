@@ -42,11 +42,30 @@ ipcMain.handle('minimize', () => {
   if (popup && !popup.isDestroyed()) popup.hide();
 });
 
+function showBrowser() {
+  if (hidden && !hidden.isDestroyed()) {
+    hidden.setTitle('Đăng nhập Facebook — TeZo Agent');
+    hidden.setSize(1200, 800);
+    hidden.center();
+    hidden.show();
+    hidden.focus();
+  }
+}
+
+function hideBrowser() {
+  if (hidden && !hidden.isDestroyed()) {
+    hidden.hide();
+  }
+}
+
+// Export để agent.js dùng khi xử lý task login_facebook
+app.showBrowser = showBrowser;
+app.hideBrowser = hideBrowser;
+
 ipcMain.handle('login-facebook', async () => {
   const onLog = (msg) => popup?.webContents.send('log-message', msg);
-  const result = await loginFacebook(onLog);
+  const result = await loginFacebook(onLog, showBrowser, hideBrowser);
   if (result.ok) {
-    // Sau đăng nhập: lấy identities + auto fetch groups
     agent.triggerAfterLogin(onLog).catch(() => {});
   }
   return result;
