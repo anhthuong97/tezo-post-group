@@ -248,19 +248,28 @@ async function openIdentitySwitcher(wc, onLog) {
       var allHasPopup = banner.querySelectorAll('[aria-haspopup="dialog"][role="button"]').length;
       var imgEl = banner.querySelector('[aria-haspopup="dialog"][role="button"] svg image');
       if (!imgEl) {
-        // fallback: tìm tất cả svg image trong banner
-        var anySvgImg = banner.querySelector('svg image');
-        return { ok: false, reason: 'no_img_in_haspopup', allHasPopup: allHasPopup, anySvgImg: !!anySvgImg };
+        var anySvgImg = !!banner.querySelector('svg image');
+        return { ok: false, reason: 'no_img_in_haspopup', allHasPopup: allHasPopup, anySvgImg: anySvgImg };
       }
       var btn = imgEl.closest('[aria-haspopup="dialog"]');
       if (!btn) return { ok: false, reason: 'no_btn_from_closest', allHasPopup: allHasPopup };
-      btn.click();
-      return { ok: true, allHasPopup: allHasPopup };
+      var r = btn.getBoundingClientRect();
+      return {
+        ok: true, allHasPopup: allHasPopup,
+        x: Math.round(r.left + r.width / 2),
+        y: Math.round(r.top + r.height / 2),
+      };
     })()
   `);
 
   onLog?.('[Avatar] ' + JSON.stringify(debug));
   if (!debug.ok) throw new Error('Không tìm thấy nút avatar: ' + debug.reason);
+
+  // sendInputEvent gửi mouse event thật (reliable hơn .click() với React)
+  wc.sendInputEvent({ type: 'mouseDown', x: debug.x, y: debug.y, button: 'left', clickCount: 1 });
+  await new Promise(r => setTimeout(r, 80));
+  wc.sendInputEvent({ type: 'mouseUp',   x: debug.x, y: debug.y, button: 'left', clickCount: 1 });
+  onLog?.('[Avatar] sendInputEvent at ' + debug.x + ',' + debug.y);
 
   // Chờ dialog mới xuất hiện
   await new Promise(r => setTimeout(r, 1500));
