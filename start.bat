@@ -31,10 +31,11 @@ if not exist "apps\api\.env" (
     echo       .env da ton tai.
 )
 
-:: Buoc 3: Giai phong port 3000 va 3001
-echo [3/7] Giai phong port 3000 va 3001...
+:: Buoc 3: Giai phong port 3000, 3001 va tat Electron cu
+echo [3/7] Giai phong port 3000, 3001 va tat Electron cu...
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":3000 " ^| findstr "LISTENING"') do taskkill /PID %%a /F >nul 2>&1
 for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":3001 " ^| findstr "LISTENING"') do taskkill /PID %%a /F >nul 2>&1
+taskkill /IM electron.exe /F >nul 2>&1
 ping -n 2 127.0.0.1 >nul
 echo       Xong.
 

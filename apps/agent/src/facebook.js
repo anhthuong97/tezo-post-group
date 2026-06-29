@@ -404,6 +404,7 @@ async function ensurePersonalIdentity(wc, onLog) {
 // ─── getIdentities ─────────────────────────────────────────────────────────
 
 async function getIdentities(onLog) {
+  onLog?.('[v3] getIdentities start');
   onLog?.('Đang lấy danh sách tư cách...');
   try {
     // Bước 0: Đảm bảo đang ở tư cách cá nhân — dùng window hiện tại, không navigate tránh race
