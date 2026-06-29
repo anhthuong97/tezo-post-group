@@ -435,10 +435,23 @@ async function getIdentities(onLog) {
     for (let attempt = 0; attempt < 20 && !personalName; attempt++) {
       personalName = await wcMe.executeJavaScript(`
         (function() {
-          var h1 = document.querySelector('h1');
-          if (!h1) return null;
-          var t = (h1.innerText || '').replace(/ /g, ' ').trim().split('\\n')[0].trim();
-          return (t && t.length >= 2 && t.length < 100) ? t : null;
+          // Profile name nam trong span[dir="auto"] > h1 > [role="button"]
+          var h1 = document.querySelector('span[dir="auto"] > h1');
+          if (h1) {
+            var btn = h1.querySelector('[role="button"]');
+            var t = ((btn || h1).innerText || '').replace(/ /g, '').trim().split('\n')[0].trim();
+            if (t && t.length >= 2 && t.length < 100) return t;
+          }
+          // Fallback: h1 khong trong dialog (tranh overlay sau khi switch identity)
+          var h1s = Array.from(document.querySelectorAll('h1'));
+          for (var i = 0; i < h1s.length; i++) {
+            var el = h1s[i];
+            if (el.closest('[role="dialog"]')) continue;
+            if (el.closest('[aria-hidden="true"]')) continue;
+            var t2 = (el.innerText || '').replace(/ /g, '').trim().split('\n')[0].trim();
+            if (t2 && t2.length >= 2 && t2.length < 100) return t2;
+          }
+          return null;
         })()
       `);
       if (!personalName) await new Promise(r => setTimeout(r, 500));
