@@ -324,8 +324,24 @@ async function getCurrentIdentityName(wc, existingLabels) {
 }
 
 // Chuyển về tư cách cá nhân nếu đang ở page identity
-// Flow: click avatar → nếu dropdown có ≥2 rows với avatar → click row 2 (personal)
+// Flow: poll chờ avatar sẵn → click → check dropdown → switch nếu cần
 async function ensurePersonalIdentity(wc, onLog) {
+  onLog?.('[EnsurePersonal] bắt đầu, url=' + (wc.getURL?.() || '?'));
+
+  // Poll chờ avatar button sẵn sàng (tối đa 8s) — tránh race condition khi trang đang load/redirect
+  let avatarReady = false;
+  for (let i = 0; i < 16; i++) {
+    try {
+      avatarReady = await wc.executeJavaScript(
+        `!!document.querySelector('[role="banner"] [aria-haspopup="dialog"][role="button"] svg image')`
+      );
+    } catch {}
+    if (avatarReady) break;
+    await new Promise(r => setTimeout(r, 500));
+  }
+  onLog?.('[EnsurePersonal] avatarReady=' + avatarReady);
+  if (!avatarReady) { onLog?.('[EnsurePersonal] không tìm thấy avatar, bỏ qua'); return; }
+
   let existingLabels;
   try {
     existingLabels = await openIdentitySwitcher(wc, onLog);
@@ -390,10 +406,14 @@ async function ensurePersonalIdentity(wc, onLog) {
 async function getIdentities(onLog) {
   onLog?.('Đang lấy danh sách tư cách...');
   try {
-    // Bước 0: Về trang chủ và đảm bảo đang ở tư cách cá nhân
-    const wcHome = await navigateFbWin('https://www.facebook.com/', onLog);
-    if (isLoggedOut(wcHome.getURL())) { onLog?.('Chưa đăng nhập Facebook.'); return []; }
-    await ensurePersonalIdentity(wcHome, onLog);
+    // Bước 0: Đảm bảo đang ở tư cách cá nhân — dùng window hiện tại, không navigate tránh race
+    const { app } = require('electron');
+    const fbWin = app.getFbWindow?.();
+    if (!fbWin || fbWin.isDestroyed()) throw new Error('Browser chưa mở. Hãy click "Hiện Browser" trước.');
+    const wcCurrent = fbWin.webContents;
+    onLog?.('[Step0] url hiện tại: ' + wcCurrent.getURL());
+    if (isLoggedOut(wcCurrent.getURL())) { onLog?.('Chưa đăng nhập Facebook.'); return []; }
+    await ensurePersonalIdentity(wcCurrent, onLog);
     await new Promise(r => setTimeout(r, 1000));
 
     // Bước 1: Tên cá nhân — /me → h1
