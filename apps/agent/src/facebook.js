@@ -236,28 +236,40 @@ async function navigateFbWin(url, onLog) {
 // ─── Helpers cho identity switcher (port từ master cũ) ───────────────────────
 
 // Mở avatar dropdown ở góc phải, trả về labels của dialogs đã tồn tại trước khi click
-async function openIdentitySwitcher(wc) {
+async function openIdentitySwitcher(wc, onLog) {
   const existingLabels = await wc.executeJavaScript(
     `Array.from(document.querySelectorAll('[role="dialog"]')).map(function(d){return d.getAttribute('aria-label')||'';})`
   );
 
-  const clicked = await wc.executeJavaScript(`
+  const debug = await wc.executeJavaScript(`
     (function() {
       var banner = document.querySelector('[role="banner"]');
-      if (!banner) return false;
-      // Avatar button: [aria-haspopup="dialog"][role="button"] chứa svg > image (ảnh đại diện tròn)
+      if (!banner) return { ok: false, reason: 'no_banner' };
+      var allHasPopup = banner.querySelectorAll('[aria-haspopup="dialog"][role="button"]').length;
       var imgEl = banner.querySelector('[aria-haspopup="dialog"][role="button"] svg image');
-      var btn = imgEl ? imgEl.closest('[aria-haspopup="dialog"]') : null;
-      if (!btn) return false;
+      if (!imgEl) {
+        // fallback: tìm tất cả svg image trong banner
+        var anySvgImg = banner.querySelector('svg image');
+        return { ok: false, reason: 'no_img_in_haspopup', allHasPopup: allHasPopup, anySvgImg: !!anySvgImg };
+      }
+      var btn = imgEl.closest('[aria-haspopup="dialog"]');
+      if (!btn) return { ok: false, reason: 'no_btn_from_closest', allHasPopup: allHasPopup };
       btn.click();
-      return true;
+      return { ok: true, allHasPopup: allHasPopup };
     })()
   `);
 
-  if (!clicked) throw new Error('Không tìm thấy nút avatar');
+  onLog?.('[Avatar] ' + JSON.stringify(debug));
+  if (!debug.ok) throw new Error('Không tìm thấy nút avatar: ' + debug.reason);
 
   // Chờ dialog mới xuất hiện
-  await new Promise(r => setTimeout(r, 1200));
+  await new Promise(r => setTimeout(r, 1500));
+
+  const dialogCount = await wc.executeJavaScript(
+    `document.querySelectorAll('[role="dialog"]').length`
+  );
+  onLog?.('[Avatar] dialogs sau click: ' + dialogCount);
+
   return existingLabels;
 }
 
@@ -307,7 +319,7 @@ async function getCurrentIdentityName(wc, existingLabels) {
 async function ensurePersonalIdentity(wc, onLog) {
   let existingLabels;
   try {
-    existingLabels = await openIdentitySwitcher(wc);
+    existingLabels = await openIdentitySwitcher(wc, onLog);
   } catch (e) {
     onLog?.('Không mở được dropdown avatar: ' + e.message);
     return;
@@ -325,22 +337,26 @@ async function ensurePersonalIdentity(wc, onLog) {
       var dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
       var d = dialogs.find(function(x){ return !existing.has(x.getAttribute('aria-label')||''); })
               || dialogs[dialogs.length - 1];
-      if (!d) return 'no_dialog';
+      if (!d) return { status: 'no_dialog', totalDialogs: dialogs.length };
+      var allItems = d.querySelectorAll('[role="listitem"]').length;
       var items = Array.from(d.querySelectorAll('[role="listitem"]'))
                        .filter(function(item){ return item.querySelector('svg image'); });
-      if (!items.length) return 'no_items';
+      if (!items.length) return { status: 'no_items', allListitems: allItems };
       // Kiểm tra first listitem có phải cá nhân không (mask có 2+ circles)
       var firstSvg = items[0].querySelector('svg');
       var circleCount = firstSvg ? firstSvg.querySelectorAll('mask circle').length : 0;
-      if (circleCount < 2) return 'already_personal';
+      if (circleCount < 2) return { status: 'already_personal', itemCount: items.length, circleCount: circleCount };
       // First listitem là tư cách cá nhân → click để chuyển
       var el = items[0].querySelector('a, [role="button"]');
-      if (el) { el.click(); return 'clicked'; }
-      return 'not_found';
+      if (el) { el.click(); return { status: 'clicked', itemCount: items.length, circleCount: circleCount }; }
+      return { status: 'not_found', itemCount: items.length, circleCount: circleCount };
     })()
   `);
 
-  if (switchResult === 'already_personal' || switchResult === 'no_items') {
+  onLog?.('[EnsurePersonal] ' + JSON.stringify(switchResult));
+
+  const status = switchResult && switchResult.status;
+  if (status === 'already_personal' || status === 'no_items') {
     onLog?.('Đang ở tư cách cá nhân');
     await wc.executeJavaScript(
       `document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`
@@ -348,8 +364,8 @@ async function ensurePersonalIdentity(wc, onLog) {
     return;
   }
 
-  if (switchResult !== 'clicked') {
-    onLog?.('Không tìm thấy tư cách cá nhân trong dropdown (' + switchResult + ')');
+  if (status !== 'clicked') {
+    onLog?.('Không tìm thấy tư cách cá nhân trong dropdown (status=' + status + ')');
     return;
   }
 
