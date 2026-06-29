@@ -10,8 +10,8 @@ ping -n 2 127.0.0.1 >nul
 
 echo  Dang khoi dong TeZo Agent...
 if exist "apps\agent\node_modules\.bin\electron.cmd" (
-    start "TeZo Agent" /B cmd /c "cd /d \"%~dp0apps\agent\" && npx electron . 2>nul"
-    echo  [OK] TeZo Agent da khoi dong lai.
+    start "TeZo Agent" cmd /c "cd /d "%~dp0apps\agent" && npx electron ."
+    echo  [OK] TeZo Agent da khoi dong lai (xem cua so TeZo Agent de theo doi).
 ) else (
     echo  [LOI] Chua cai node_modules cho agent. Chay start.bat truoc.
     pause
