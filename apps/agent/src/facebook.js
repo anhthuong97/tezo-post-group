@@ -342,6 +342,29 @@ async function ensurePersonalIdentity(wc, onLog) {
   onLog?.('[EnsurePersonal] avatarReady=' + avatarReady);
   if (!avatarReady) { onLog?.('[EnsurePersonal] không tìm thấy avatar, bỏ qua'); return; }
 
+  // Detect identity bằng BANNER SVG mask circles (không phải dropdown listitem SVG):
+  // - Banner personal avatar: 2 mask circles (main + badge cutout)
+  // - Banner page avatar:     1 mask circle  (chỉ main clip)
+  const bannerInfo = await wc.executeJavaScript(`
+    (function() {
+      var svg = document.querySelector('[role="banner"] [aria-haspopup="dialog"][role="button"] svg');
+      if (!svg) return { found: false };
+      var maskCircles = svg.querySelectorAll('mask circle').length;
+      var allCircles  = svg.querySelectorAll('circle').length;
+      var clipCircles = svg.querySelectorAll('clipPath circle').length;
+      var masks       = svg.querySelectorAll('mask').length;
+      return { found: true, maskCircles: maskCircles, allCircles: allCircles, clipCircles: clipCircles, masks: masks };
+    })()
+  `);
+  onLog?.('[EnsurePersonal] bannerSvg=' + JSON.stringify(bannerInfo));
+
+  if (bannerInfo.maskCircles >= 2) {
+    onLog?.('Đang ở tư cách cá nhân (banner: ' + bannerInfo.maskCircles + ' mask circles)');
+    return; // Không cần switch
+  }
+
+  // maskCircles <= 1 → đang ở tư cách page → tiến hành switch
+  onLog?.('[EnsurePersonal] phát hiện tư cách page, mở dropdown...');
   let existingLabels;
   try {
     existingLabels = await openIdentitySwitcher(wc, onLog);
@@ -350,11 +373,7 @@ async function ensurePersonalIdentity(wc, onLog) {
     return;
   }
 
-  // Phân biệt tư cách cá nhân vs page bằng số circles trong SVG mask:
-  // - Cá nhân: 2 circles (main + badge cutout có data-visualcompletion="ignore")
-  // - Page: 1 circle
-  // Dòng 1 dialog là header (current identity, không phải listitem).
-  // First listitem = tư cách cá nhân (khi đang ở page identity).
+  // Click first listitem = tư cách cá nhân (khi đang ở page identity, dòng 1 = header, first listitem = personal)
   const switchResult = await wc.executeJavaScript(`
     (function() {
       var before = ${JSON.stringify(existingLabels)};
@@ -363,40 +382,32 @@ async function ensurePersonalIdentity(wc, onLog) {
       var d = dialogs.find(function(x){ return !existing.has(x.getAttribute('aria-label')||''); })
               || dialogs[dialogs.length - 1];
       if (!d) return { status: 'no_dialog', totalDialogs: dialogs.length };
-      var allItems = d.querySelectorAll('[role="listitem"]').length;
-      var items = Array.from(d.querySelectorAll('[role="listitem"]'))
-                       .filter(function(item){ return item.querySelector('svg image'); });
-      if (!items.length) return { status: 'no_items', allListitems: allItems };
-      // Kiểm tra first listitem có phải cá nhân không (mask có 2+ circles)
+      // Lấy tất cả listitems (không filter svg image vì dropdown dùng clipPath chứ không dùng mask)
+      var items = Array.from(d.querySelectorAll('[role="listitem"]'));
+      if (!items.length) return { status: 'no_items' };
+      // Debug: log svg info của item đầu
       var firstSvg = items[0].querySelector('svg');
-      var circleCount = firstSvg ? firstSvg.querySelectorAll('mask circle').length : 0;
-      if (circleCount < 2) return { status: 'already_personal', itemCount: items.length, circleCount: circleCount };
-      // First listitem là tư cách cá nhân → click để chuyển
-      var el = items[0].querySelector('a, [role="button"]');
-      if (el) { el.click(); return { status: 'clicked', itemCount: items.length, circleCount: circleCount }; }
-      return { status: 'not_found', itemCount: items.length, circleCount: circleCount };
+      var svgDbg = firstSvg ? {
+        maskCircles: firstSvg.querySelectorAll('mask circle').length,
+        allCircles: firstSvg.querySelectorAll('circle').length,
+        clipCircles: firstSvg.querySelectorAll('clipPath circle').length
+      } : null;
+      // Click vào first listitem (= personal account khi đang ở page identity)
+      var el = items[0].querySelector('a[href], [role="button"]');
+      if (el) { el.click(); return { status: 'clicked', itemCount: items.length, svgDbg: svgDbg }; }
+      items[0].click();
+      return { status: 'clicked_item', itemCount: items.length, svgDbg: svgDbg };
     })()
   `);
 
-  onLog?.('[EnsurePersonal] ' + JSON.stringify(switchResult));
+  onLog?.('[EnsurePersonal] switch=' + JSON.stringify(switchResult));
 
-  const status = switchResult && switchResult.status;
-  if (status === 'already_personal' || status === 'no_items') {
-    onLog?.('Đang ở tư cách cá nhân');
-    await wc.executeJavaScript(
-      `document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`
-    );
+  if (!switchResult || (switchResult.status !== 'clicked' && switchResult.status !== 'clicked_item')) {
+    onLog?.('Không thể click tư cách cá nhân (status=' + (switchResult?.status) + ')');
     return;
   }
 
-  if (status !== 'clicked') {
-    onLog?.('Không tìm thấy tư cách cá nhân trong dropdown (status=' + status + ')');
-    return;
-  }
-
-  // Đang ở tư cách page → đã click dòng cá nhân, chờ chuyển
   onLog?.('Đang chuyển về tư cách cá nhân...');
-
   await new Promise(r => setTimeout(r, 3000));
   onLog?.('Đã chuyển về tư cách cá nhân');
 }
