@@ -14,12 +14,15 @@ interface GroupListProps {
   onLoad: () => void;
   loading: boolean;
   error: string;
+  disabled?: boolean;
+  disabledMsg?: string;
 }
 
 export function GroupList({
   groups, selected, search, onSearch,
   onToggle, onSelectAll, onDeselectAll,
   onLoad, loading, error,
+  disabled, disabledMsg,
 }: GroupListProps) {
   const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
 
@@ -34,7 +37,14 @@ export function GroupList({
     : groups;
 
   return (
-    <div className="h-full flex flex-col px-4 py-3 gap-2">
+    <div className="h-full flex flex-col px-4 py-3 gap-2 relative">
+      {disabled && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/75 backdrop-blur-[1px] rounded">
+          <p className="text-xs text-gray-400 text-center px-6 leading-relaxed">
+            {disabledMsg || 'Không khả dụng'}
+          </p>
+        </div>
+      )}
       <div className="shrink-0 flex items-center justify-between">
         <p className="section-title mb-0">Nhóm ({selected.size}/{groups.length})</p>
         <Button variant="primary" loading={loading} onClick={onLoad} className="text-xs px-3 py-1 h-7">

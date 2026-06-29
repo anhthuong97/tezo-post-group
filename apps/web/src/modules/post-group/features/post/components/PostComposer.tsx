@@ -30,6 +30,7 @@ interface PostComposerProps {
   selectedGroups: Group[];
   onStartPost: (groups: Group[]) => Promise<boolean>;
   onPostStarted: () => void;
+  canPost?: boolean;
 }
 
 function Toggle({ on, onChange, color = 'blue' }: { on: boolean; onChange: (v: boolean) => void; color?: string }) {
@@ -53,7 +54,7 @@ export function PostComposer({
   commentTemplate, setCommentTemplate,
   commentEnabled, setCommentEnabled,
   imgList, setImgList, addServerImages, clearAll,
-  loading, error, selectedGroups, onStartPost, onPostStarted,
+  loading, error, selectedGroups, onStartPost, onPostStarted, canPost = true,
 }: PostComposerProps) {
   const [showPreview, setShowPreview]   = useState(false);
   const [showAiModal, setShowAiModal]   = useState(false);
@@ -208,8 +209,16 @@ export function PostComposer({
         <p className="text-red-500 text-xs px-1">{error || localError}</p>
       )}
 
-      <Button variant="primary" loading={loading} onClick={handlePreview} className="w-full h-11 text-base font-semibold">
-        Xem trước & Đăng {selectedGroups.length > 0 ? `(${selectedGroups.length} nhóm)` : ''}
+      <Button
+        variant="primary"
+        loading={loading}
+        disabled={!canPost || loading}
+        onClick={handlePreview}
+        className="w-full h-11 text-base font-semibold"
+      >
+        {!canPost && !loading
+          ? 'Chọn tư cách & nhóm để đăng bài'
+          : `Xem trước & Đăng${selectedGroups.length > 0 ? ` (${selectedGroups.length} nhóm)` : ''}`}
       </Button>
 
       <PreviewModal

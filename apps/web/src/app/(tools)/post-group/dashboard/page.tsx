@@ -44,6 +44,18 @@ export default function DashboardPage() {
 
   usePolling(ps.pollLogs, 3000, ps.isPosting);
 
+  const isLoggedIn  = agent.identities.length > 0;
+  const isSwitching = agent.switching;
+
+  // GroupList bị khoá khi: chưa đăng nhập FB, hoặc đang chuyển tư cách
+  const groupsDisabled  = !isLoggedIn || isSwitching;
+  const groupsDisabledMsg = !isLoggedIn
+    ? 'Đăng nhập Facebook để xem danh sách nhóm'
+    : 'Đang chuyển tư cách, vui lòng chờ...';
+
+  // Nút đăng bài: chỉ cho phép khi đã login, không đang switch, không đang load groups
+  const canPost = isLoggedIn && !isSwitching && !groups.loading;
+
   // Tải nhóm theo identity hiện tại
   useEffect(() => {
     const id = agent.currentIdentity?.id || 'personal';
@@ -124,6 +136,8 @@ export default function DashboardPage() {
               onLoad={() => groups.loadGroups()}
               loading={groups.loading}
               error={groups.error}
+              disabled={groupsDisabled}
+              disabledMsg={groupsDisabledMsg}
             />
           </div>
         </div>
@@ -149,6 +163,7 @@ export default function DashboardPage() {
             selectedGroups={groups.selectedList}
             onStartPost={(groups) => post.startPost(groups, '')}
             onPostStarted={handlePostStarted}
+            canPost={canPost}
           />
         </div>
       </div>
