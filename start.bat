@@ -117,13 +117,14 @@ echo  +-----------------------------------------+
 echo.
 start http://localhost:3001/post-group/dashboard
 
-:: Khoi dong TeZo Agent (Electron)
+:: Khoi dong TeZo Agent (Electron) - chay nen, khong de lai cua so CMD
 echo  Dang khoi dong TeZo Agent...
-if exist "apps\agent\node_modules\.bin\electron.cmd" (
-    start "TeZo Agent" /B cmd /c "cd /d "%~dp0apps\agent" && npx electron . 2>nul"
+set ELECTRON_EXE=%~dp0apps\agent\node_modules\electron\dist\electron.exe
+if exist "%ELECTRON_EXE%" (
+    start "" "%ELECTRON_EXE%" "%~dp0apps\agent"
     echo  [OK] TeZo Agent da khoi dong ^(icon TEZO tren system tray^)
 ) else (
-    echo  [CANH BAO] Agent chua cai xong, bo qua.
+    echo  [CANH BAO] Khong tim thay electron.exe, bo qua.
 )
 
 :DONE

@@ -8,17 +8,20 @@ echo  Dang tat Agent cu...
 taskkill /IM electron.exe /F >nul 2>&1
 ping -n 2 127.0.0.1 >nul
 
-echo  Dang khoi dong TeZo Agent...
-if not exist "apps\agent\node_modules\.bin\electron.cmd" goto NO_MODULES
+set ELECTRON_EXE=%~dp0apps\agent\node_modules\electron\dist\electron.exe
+set AGENT_DIR=%~dp0apps\agent
 
-pushd "%~dp0apps\agent"
-start "TeZo Agent" cmd /k npx electron .
-popd
-echo  [OK] TeZo Agent da khoi dong lai (xem cua so "TeZo Agent").
+if not exist "%ELECTRON_EXE%" goto NO_ELECTRON
+
+echo  Dang khoi dong TeZo Agent...
+start "" "%ELECTRON_EXE%" "%AGENT_DIR%"
+echo  [OK] TeZo Agent da khoi dong (chay nen, khong co cua so CMD).
 goto DONE
 
-:NO_MODULES
-echo  [LOI] Chua cai node_modules cho agent. Chay start.bat truoc.
+:NO_ELECTRON
+echo  [LOI] Khong tim thay electron.exe tai:
+echo        %ELECTRON_EXE%
+echo  Hay chay start.bat truoc de cai node_modules.
 pause
 exit /b 1
 
@@ -26,4 +29,4 @@ exit /b 1
 echo.
 echo  Co the dong cua so nay.
 echo.
-timeout /t 3 >nul
+timeout /t 2 >nul

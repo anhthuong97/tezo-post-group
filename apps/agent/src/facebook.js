@@ -323,12 +323,10 @@ async function getCurrentIdentityName(wc, existingLabels) {
   `);
 }
 
-// Chuyển về tư cách cá nhân nếu đang ở page identity
-// Flow: poll chờ avatar sẵn → click → check dropdown → switch nếu cần
-async function ensurePersonalIdentity(wc, onLog) {
-  onLog?.('[EnsurePersonal] bắt đầu, url=' + (wc.getURL?.() || '?'));
-
-  // Poll chờ avatar button sẵn sàng (tối đa 8s) — tránh race condition khi trang đang load/redirect
+// Chuyển về tư cách cá nhân (chỉ gọi khi ĐÃ BIẾT đang ở page identity, phát hiện qua /me)
+// Flow: poll avatar → open dropdown → click first listitem (= personal trong page mode)
+async function forcePersonalIdentity(wc, onLog) {
+  onLog?.('[ForcePersonal] bắt đầu');
   let avatarReady = false;
   for (let i = 0; i < 16; i++) {
     try {
@@ -339,41 +337,17 @@ async function ensurePersonalIdentity(wc, onLog) {
     if (avatarReady) break;
     await new Promise(r => setTimeout(r, 500));
   }
-  onLog?.('[EnsurePersonal] avatarReady=' + avatarReady);
-  if (!avatarReady) { onLog?.('[EnsurePersonal] không tìm thấy avatar, bỏ qua'); return; }
+  onLog?.('[ForcePersonal] avatarReady=' + avatarReady);
+  if (!avatarReady) { onLog?.('[ForcePersonal] không thấy avatar, bỏ qua'); return; }
 
-  // Detect identity bằng BANNER SVG mask circles (không phải dropdown listitem SVG):
-  // - Banner personal avatar: 2 mask circles (main + badge cutout)
-  // - Banner page avatar:     1 mask circle  (chỉ main clip)
-  const bannerInfo = await wc.executeJavaScript(`
-    (function() {
-      var svg = document.querySelector('[role="banner"] [aria-haspopup="dialog"][role="button"] svg');
-      if (!svg) return { found: false };
-      var maskCircles = svg.querySelectorAll('mask circle').length;
-      var allCircles  = svg.querySelectorAll('circle').length;
-      var clipCircles = svg.querySelectorAll('clipPath circle').length;
-      var masks       = svg.querySelectorAll('mask').length;
-      return { found: true, maskCircles: maskCircles, allCircles: allCircles, clipCircles: clipCircles, masks: masks };
-    })()
-  `);
-  onLog?.('[EnsurePersonal] bannerSvg=' + JSON.stringify(bannerInfo));
-
-  if (bannerInfo.maskCircles >= 2) {
-    onLog?.('Đang ở tư cách cá nhân (banner: ' + bannerInfo.maskCircles + ' mask circles)');
-    return; // Không cần switch
-  }
-
-  // maskCircles <= 1 → đang ở tư cách page → tiến hành switch
-  onLog?.('[EnsurePersonal] phát hiện tư cách page, mở dropdown...');
   let existingLabels;
   try {
     existingLabels = await openIdentitySwitcher(wc, onLog);
   } catch (e) {
-    onLog?.('Không mở được dropdown avatar: ' + e.message);
+    onLog?.('[ForcePersonal] không mở được dropdown: ' + e.message);
     return;
   }
 
-  // Click first listitem = tư cách cá nhân (khi đang ở page identity, dòng 1 = header, first listitem = personal)
   const switchResult = await wc.executeJavaScript(`
     (function() {
       var before = ${JSON.stringify(existingLabels)};
@@ -381,35 +355,22 @@ async function ensurePersonalIdentity(wc, onLog) {
       var dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
       var d = dialogs.find(function(x){ return !existing.has(x.getAttribute('aria-label')||''); })
               || dialogs[dialogs.length - 1];
-      if (!d) return { status: 'no_dialog', totalDialogs: dialogs.length };
-      // Lấy tất cả listitems (không filter svg image vì dropdown dùng clipPath chứ không dùng mask)
+      if (!d) return { status: 'no_dialog' };
       var items = Array.from(d.querySelectorAll('[role="listitem"]'));
-      if (!items.length) return { status: 'no_items' };
-      // Debug: log svg info của item đầu
-      var firstSvg = items[0].querySelector('svg');
-      var svgDbg = firstSvg ? {
-        maskCircles: firstSvg.querySelectorAll('mask circle').length,
-        allCircles: firstSvg.querySelectorAll('circle').length,
-        clipCircles: firstSvg.querySelectorAll('clipPath circle').length
-      } : null;
-      // Click vào first listitem (= personal account khi đang ở page identity)
-      var el = items[0].querySelector('a[href], [role="button"]');
-      if (el) { el.click(); return { status: 'clicked', itemCount: items.length, svgDbg: svgDbg }; }
+      if (!items.length) return { status: 'no_items', html: d.innerHTML.slice(0,200) };
+      var el = items[0].querySelector('a[href],[role="button"]');
+      if (el) { el.click(); return { status: 'clicked', count: items.length }; }
       items[0].click();
-      return { status: 'clicked_item', itemCount: items.length, svgDbg: svgDbg };
+      return { status: 'clicked_item', count: items.length };
     })()
   `);
 
-  onLog?.('[EnsurePersonal] switch=' + JSON.stringify(switchResult));
-
-  if (!switchResult || (switchResult.status !== 'clicked' && switchResult.status !== 'clicked_item')) {
-    onLog?.('Không thể click tư cách cá nhân (status=' + (switchResult?.status) + ')');
-    return;
+  onLog?.('[ForcePersonal] ' + JSON.stringify(switchResult));
+  if (switchResult?.status?.startsWith('clicked')) {
+    onLog?.('Đang chuyển về tư cách cá nhân...');
+    await new Promise(r => setTimeout(r, 3000));
+    onLog?.('Đã chuyển về tư cách cá nhân');
   }
-
-  onLog?.('Đang chuyển về tư cách cá nhân...');
-  await new Promise(r => setTimeout(r, 3000));
-  onLog?.('Đã chuyển về tư cách cá nhân');
 }
 
 // ─── getIdentities ─────────────────────────────────────────────────────────
@@ -418,44 +379,52 @@ async function getIdentities(onLog) {
   onLog?.('[v3] getIdentities start');
   onLog?.('Đang lấy danh sách tư cách...');
   try {
-    // Bước 0: Đảm bảo đang ở tư cách cá nhân — dùng window hiện tại, không navigate tránh race
+    // Bước 0+1: Detect identity qua /me, switch nếu cần, lấy tên cá nhân
     const { app } = require('electron');
     const fbWin = app.getFbWindow?.();
     if (!fbWin || fbWin.isDestroyed()) throw new Error('Browser chưa mở. Hãy click "Hiện Browser" trước.');
-    const wcCurrent = fbWin.webContents;
-    onLog?.('[Step0] url hiện tại: ' + wcCurrent.getURL());
-    if (isLoggedOut(wcCurrent.getURL())) { onLog?.('Chưa đăng nhập Facebook.'); return []; }
-    await ensurePersonalIdentity(wcCurrent, onLog);
-    await new Promise(r => setTimeout(r, 1000));
 
-    // Bước 1: Tên cá nhân — /me → h1
+    // Helper lấy tên từ span[dir="auto"] > h1 (cấu trúc xác nhận từ Facebook1.html)
+    const getNameFromPage = async (wc) => {
+      let name = null;
+      for (let i = 0; i < 20 && !name; i++) {
+        try {
+          name = await wc.executeJavaScript(`
+            (function() {
+              var h1 = document.querySelector('span[dir=\"auto\"] > h1');
+              if (!h1) return null;
+              var btn = h1.querySelector('[role=\"button\"]');
+              var t = ((btn || h1).innerText || '').trim().split('\\n')[0].trim();
+              return (t && t.length >= 2 && t.length < 100) ? t : null;
+            })()
+          `);
+        } catch {}
+        if (!name) await new Promise(r => setTimeout(r, 500));
+      }
+      return name;
+    };
+
+    if (isLoggedOut(fbWin.webContents.getURL())) { onLog?.('Chưa đăng nhập Facebook.'); return []; }
+
+    // Thử lấy tên từ /me — nếu được = đang ở personal, không cần switch
+    onLog?.('[Step1] navigate /me...');
     const wcMe = await navigateFbWin('https://www.facebook.com/me', onLog);
+    onLog?.('[Step1] url sau /me: ' + wcMe.getURL());
 
-    let personalName = null;
-    for (let attempt = 0; attempt < 20 && !personalName; attempt++) {
-      personalName = await wcMe.executeJavaScript(`
-        (function() {
-          // Profile name nam trong span[dir="auto"] > h1 > [role="button"]
-          var h1 = document.querySelector('span[dir="auto"] > h1');
-          if (h1) {
-            var btn = h1.querySelector('[role="button"]');
-            var t = ((btn || h1).innerText || '').replace(/ /g, '').trim().split('\n')[0].trim();
-            if (t && t.length >= 2 && t.length < 100) return t;
-          }
-          // Fallback: h1 khong trong dialog (tranh overlay sau khi switch identity)
-          var h1s = Array.from(document.querySelectorAll('h1'));
-          for (var i = 0; i < h1s.length; i++) {
-            var el = h1s[i];
-            if (el.closest('[role="dialog"]')) continue;
-            if (el.closest('[aria-hidden="true"]')) continue;
-            var t2 = (el.innerText || '').replace(/ /g, '').trim().split('\n')[0].trim();
-            if (t2 && t2.length >= 2 && t2.length < 100) return t2;
-          }
-          return null;
-        })()
-      `);
-      if (!personalName) await new Promise(r => setTimeout(r, 500));
+    let personalName = await getNameFromPage(wcMe);
+    onLog?.('[Step1] tên tentative: ' + personalName);
+
+    // Nếu không lấy được tên → đang ở page identity → switch về personal
+    if (!personalName) {
+      onLog?.('[Step1] không tìm thấy tên → đang ở tư cách page, tiến hành switch...');
+      await forcePersonalIdentity(wcMe, onLog);
+      await new Promise(r => setTimeout(r, 2000));
+      // Thử lại /me sau khi switch
+      const wcMe2 = await navigateFbWin('https://www.facebook.com/me', onLog);
+      personalName = await getNameFromPage(wcMe2);
+      onLog?.('[Step1b] tên sau switch: ' + personalName);
     }
+
     onLog?.(`Tên cá nhân: "${personalName}"`);
 
     const identities = [{ id: 'personal', name: personalName || 'Trang cá nhân', type: 'personal' }];
