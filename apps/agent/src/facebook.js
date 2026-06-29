@@ -392,7 +392,7 @@ async function getIdentities(onLog) {
         const u = new URL(str);
         if (!u.hostname.includes('facebook.com')) return '';
         if (u.pathname === '/profile.php') return 'profile:' + (u.searchParams.get('id') || '');
-        return u.pathname.replace(/^\/|\/$/g, '').toLowerCase().split('?')[0];
+        var seg = u.pathname.replace(/^\//, '').split('/')[0].split('?')[0].toLowerCase(); return seg || '';
       } catch { return ''; }
     };
 
@@ -443,7 +443,7 @@ async function getIdentities(onLog) {
             if (u.pathname === '/profile.php' && u.searchParams.get('id')) {
               href = '/profile.php?id=' + u.searchParams.get('id');
               cleanUrl = u.origin + href;
-            } else if (u.pathname.length > 1 && !u.search) {
+            } else if (u.pathname.length > 1) {
               href = u.pathname.replace(/\\/$/, '');
               cleanUrl = u.origin + href;
             } else { continue; }
