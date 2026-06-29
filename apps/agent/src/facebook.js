@@ -317,26 +317,39 @@ async function getIdentities(onLog) {
     const wcMe = await navigateFbWin('https://www.facebook.com/me', onLog);
     if (isLoggedOut(wcMe.getURL())) { onLog?.('Chưa đăng nhập Facebook.'); return []; }
 
-    const personalName = await wcMe.executeJavaScript(`
-      (function() {
-        var h1 = document.querySelector('h1');
-        if (h1) { var t = h1.textContent.trim(); if (t && t.length < 100) return t; }
-        return null;
-      })()
-    `);
+    let personalName = null;
+    for (let attempt = 0; attempt < 20 && !personalName; attempt++) {
+      personalName = await wcMe.executeJavaScript(`
+        (function() {
+          var h1 = document.querySelector('h1');
+          if (!h1) return null;
+          var t = (h1.innerText || '').replace(/ /g, ' ').trim().split('\\n')[0].trim();
+          return (t && t.length >= 2 && t.length < 100) ? t : null;
+        })()
+      `);
+      if (!personalName) await new Promise(r => setTimeout(r, 500));
+    }
     onLog?.(`Tên cá nhân: "${personalName}"`);
 
     const identities = [{ id: 'personal', name: personalName || 'Trang cá nhân', type: 'personal' }];
 
-    // Bước 2: Pages từ pages manager — port từ listIdentities master cũ
+    // Bước 2: Pages từ pages manager
     try {
       onLog?.('Đang tải danh sách trang...');
       const wcPages = await navigateFbWin(
         'https://www.facebook.com/pages/?category=your_pages&ref=bookmarks', onLog
       );
-      await new Promise(r => setTimeout(r, 2500));
 
-      // Scroll đến khi không có nội dung mới (tối đa 15 lần) — giống master cũ
+      // Chờ page cards render (tối đa 10s)
+      for (let i = 0; i < 20; i++) {
+        const hasCards = await wcPages.executeJavaScript(
+          `!!(document.querySelector('[role="main"] a[role="link"]:not([aria-label]) span[dir="auto"]'))`
+        );
+        if (hasCards) break;
+        await new Promise(r => setTimeout(r, 500));
+      }
+
+      // Scroll để load thêm pages (tối đa 15 lần)
       for (let i = 0; i < 15; i++) {
         const prevH = await wcPages.executeJavaScript('document.body.scrollHeight');
         await wcPages.executeJavaScript('window.scrollTo(0, document.body.scrollHeight)');
@@ -345,41 +358,33 @@ async function getIdentities(onLog) {
         if (newH === prevH) break;
       }
 
-      // Scraping trong [role="main"] — port từ master cũ
-      // Điều kiện: có span[dir="auto"] + không có aria-label + không có query param (trừ profile.php)
+      // Scraping: tên page nằm trong a[role="link"] (không có aria-label) > span[dir="auto"]
       const pages = await wcPages.executeJavaScript(`
         (function() {
           var results = [];
           var seen = new Set();
           var main = document.querySelector('[role="main"]') || document.body;
-
-          function isMenuPath(u) {
-            if (!u.hostname.includes('facebook.com')) return true;
-            var p = u.pathname;
-            if (p === '/' || p.length < 2) return true;
-            return /^\\/(pages(\\/|$)|settings|help|groups|events|watch|marketplace|checkpoint|login|notifications|messages|privacy|reels|gaming|fundraisers|offers|jobs|professional_dashboard|ads)(\\/|$)/i.test(p);
-          }
-
-          var links = Array.from(main.querySelectorAll('a[href]'));
+          var links = Array.from(main.querySelectorAll('a[role="link"]'));
           for (var i = 0; i < links.length; i++) {
             var a = links[i];
+            if (a.getAttribute('aria-label')) continue;
+            var span = a.querySelector('span[dir="auto"]');
+            if (!span) continue;
+            var name = span.innerText.trim();
+            if (!name || name.length < 2 || seen.has(name)) continue;
             try {
               var u = new URL(a.href);
-              if (isMenuPath(u)) continue;
-              if (a.getAttribute('aria-label')) continue;
-              if (u.pathname !== '/profile.php' && u.search) continue;
-
-              var cleanUrl = (u.pathname === '/profile.php' && u.searchParams.get('id'))
-                ? u.origin + '/profile.php?id=' + u.searchParams.get('id')
-                : (u.origin + u.pathname).replace(/\\/$/, '');
-              var href = (u.pathname === '/profile.php' && u.searchParams.get('id'))
-                ? '/profile.php?id=' + u.searchParams.get('id')
-                : u.pathname.replace(/\\/$/, '');
-
-              var span = a.querySelector('span[dir="auto"]');
-              var name = span && span.innerText.trim();
-              if (!name || name.length < 2 || seen.has(name)) continue;
-
+              if (!u.hostname.includes('facebook.com')) continue;
+              var href, cleanUrl;
+              if (u.pathname === '/profile.php' && u.searchParams.get('id')) {
+                href = '/profile.php?id=' + u.searchParams.get('id');
+                cleanUrl = u.origin + href;
+              } else if (u.pathname.length > 1 && !u.search) {
+                href = u.pathname.replace(/\\/$/, '');
+                cleanUrl = u.origin + href;
+              } else {
+                continue;
+              }
               seen.add(name);
               results.push({ cleanUrl: cleanUrl, href: href, name: name });
             } catch {}
