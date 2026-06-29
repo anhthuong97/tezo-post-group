@@ -245,15 +245,9 @@ async function openIdentitySwitcher(wc) {
     (function() {
       var banner = document.querySelector('[role="banner"]');
       if (!banner) return false;
-      // Ưu tiên nút có svg image (avatar tròn), lấy cái cuối cùng
-      var all = Array.from(banner.querySelectorAll('[aria-haspopup]'));
-      var btn = null;
-      for (var i = all.length - 1; i >= 0; i--) {
-        if (all[i].querySelector('svg image, img[src]')) { btn = all[i]; break; }
-      }
-      if (!btn) {
-        btn = banner.querySelector('[aria-haspopup="dialog"]');
-      }
+      // Avatar button: [aria-haspopup="dialog"][role="button"] chứa svg > image (ảnh đại diện tròn)
+      var imgEl = banner.querySelector('[aria-haspopup="dialog"][role="button"] svg image');
+      var btn = imgEl ? imgEl.closest('[aria-haspopup="dialog"]') : null;
       if (!btn) return false;
       btn.click();
       return true;
@@ -308,14 +302,75 @@ async function getCurrentIdentityName(wc, existingLabels) {
   `);
 }
 
+// Chuyển về tư cách cá nhân nếu đang ở page identity
+// Flow: click avatar → nếu dropdown có ≥2 rows với avatar → click row 2 (personal)
+async function ensurePersonalIdentity(wc, onLog) {
+  let existingLabels;
+  try {
+    existingLabels = await openIdentitySwitcher(wc);
+  } catch (e) {
+    onLog?.('Không mở được dropdown avatar: ' + e.message);
+    return;
+  }
+
+  const rowCount = await wc.executeJavaScript(`
+    (function() {
+      var before = ${JSON.stringify(existingLabels)};
+      var existing = new Set(before);
+      var dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
+      var d = dialogs.find(function(x){ return !existing.has(x.getAttribute('aria-label')||''); })
+              || dialogs[dialogs.length - 1];
+      if (!d) return 0;
+      return Array.from(d.querySelectorAll('[role="listitem"]'))
+                  .filter(function(item){ return item.querySelector('svg image'); }).length;
+    })()
+  `);
+
+  if (rowCount <= 1) {
+    // Đã ở tư cách cá nhân, đóng dropdown
+    onLog?.('Đang ở tư cách cá nhân');
+    await wc.executeJavaScript(
+      `document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`
+    );
+    return;
+  }
+
+  // Đang ở tư cách page → click dòng 2 (tư cách cá nhân)
+  onLog?.('Đang chuyển về tư cách cá nhân...');
+  await wc.executeJavaScript(`
+    (function() {
+      var before = ${JSON.stringify(existingLabels)};
+      var existing = new Set(before);
+      var dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
+      var d = dialogs.find(function(x){ return !existing.has(x.getAttribute('aria-label')||''); })
+              || dialogs[dialogs.length - 1];
+      if (!d) return false;
+      var items = Array.from(d.querySelectorAll('[role="listitem"]'))
+                       .filter(function(item){ return item.querySelector('svg image'); });
+      if (items.length < 2) return false;
+      var el = items[1].querySelector('a, [role="button"]');
+      if (el) { el.click(); return true; }
+      return false;
+    })()
+  `);
+
+  await new Promise(r => setTimeout(r, 3000));
+  onLog?.('Đã chuyển về tư cách cá nhân');
+}
+
 // ─── getIdentities ─────────────────────────────────────────────────────────
 
 async function getIdentities(onLog) {
   onLog?.('Đang lấy danh sách tư cách...');
   try {
-    // Bước 1: Tên cá nhân — /me → h1 (xác nhận chính xác)
+    // Bước 0: Về trang chủ và đảm bảo đang ở tư cách cá nhân
+    const wcHome = await navigateFbWin('https://www.facebook.com/', onLog);
+    if (isLoggedOut(wcHome.getURL())) { onLog?.('Chưa đăng nhập Facebook.'); return []; }
+    await ensurePersonalIdentity(wcHome, onLog);
+    await new Promise(r => setTimeout(r, 1000));
+
+    // Bước 1: Tên cá nhân — /me → h1
     const wcMe = await navigateFbWin('https://www.facebook.com/me', onLog);
-    if (isLoggedOut(wcMe.getURL())) { onLog?.('Chưa đăng nhập Facebook.'); return []; }
 
     let personalName = null;
     for (let attempt = 0; attempt < 20 && !personalName; attempt++) {
