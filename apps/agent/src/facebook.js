@@ -313,21 +313,34 @@ async function ensurePersonalIdentity(wc, onLog) {
     return;
   }
 
-  const rowCount = await wc.executeJavaScript(`
+  // Phân biệt tư cách cá nhân vs page bằng số circles trong SVG mask:
+  // - Cá nhân: 2 circles (main + badge cutout có data-visualcompletion="ignore")
+  // - Page: 1 circle
+  // Dòng 1 dialog là header (current identity, không phải listitem).
+  // First listitem = tư cách cá nhân (khi đang ở page identity).
+  const switchResult = await wc.executeJavaScript(`
     (function() {
       var before = ${JSON.stringify(existingLabels)};
       var existing = new Set(before);
       var dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
       var d = dialogs.find(function(x){ return !existing.has(x.getAttribute('aria-label')||''); })
               || dialogs[dialogs.length - 1];
-      if (!d) return 0;
-      return Array.from(d.querySelectorAll('[role="listitem"]'))
-                  .filter(function(item){ return item.querySelector('svg image'); }).length;
+      if (!d) return 'no_dialog';
+      var items = Array.from(d.querySelectorAll('[role="listitem"]'))
+                       .filter(function(item){ return item.querySelector('svg image'); });
+      if (!items.length) return 'no_items';
+      // Kiểm tra first listitem có phải cá nhân không (mask có 2+ circles)
+      var firstSvg = items[0].querySelector('svg');
+      var circleCount = firstSvg ? firstSvg.querySelectorAll('mask circle').length : 0;
+      if (circleCount < 2) return 'already_personal';
+      // First listitem là tư cách cá nhân → click để chuyển
+      var el = items[0].querySelector('a, [role="button"]');
+      if (el) { el.click(); return 'clicked'; }
+      return 'not_found';
     })()
   `);
 
-  if (rowCount <= 1) {
-    // Đã ở tư cách cá nhân, đóng dropdown
+  if (switchResult === 'already_personal' || switchResult === 'no_items') {
     onLog?.('Đang ở tư cách cá nhân');
     await wc.executeJavaScript(
       `document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`
@@ -335,24 +348,13 @@ async function ensurePersonalIdentity(wc, onLog) {
     return;
   }
 
-  // Đang ở tư cách page → click dòng 2 (tư cách cá nhân)
+  if (switchResult !== 'clicked') {
+    onLog?.('Không tìm thấy tư cách cá nhân trong dropdown (' + switchResult + ')');
+    return;
+  }
+
+  // Đang ở tư cách page → đã click dòng cá nhân, chờ chuyển
   onLog?.('Đang chuyển về tư cách cá nhân...');
-  await wc.executeJavaScript(`
-    (function() {
-      var before = ${JSON.stringify(existingLabels)};
-      var existing = new Set(before);
-      var dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
-      var d = dialogs.find(function(x){ return !existing.has(x.getAttribute('aria-label')||''); })
-              || dialogs[dialogs.length - 1];
-      if (!d) return false;
-      var items = Array.from(d.querySelectorAll('[role="listitem"]'))
-                       .filter(function(item){ return item.querySelector('svg image'); });
-      if (items.length < 2) return false;
-      var el = items[1].querySelector('a, [role="button"]');
-      if (el) { el.click(); return true; }
-      return false;
-    })()
-  `);
 
   await new Promise(r => setTimeout(r, 3000));
   onLog?.('Đã chuyển về tư cách cá nhân');
