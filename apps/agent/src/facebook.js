@@ -233,106 +233,168 @@ async function navigateFbWin(url, onLog) {
   return win.webContents;
 }
 
+// ─── Helpers cho identity switcher (port từ master cũ) ───────────────────────
+
+// Mở avatar dropdown ở góc phải, trả về labels của dialogs đã tồn tại trước khi click
+async function openIdentitySwitcher(wc) {
+  const existingLabels = await wc.executeJavaScript(
+    `Array.from(document.querySelectorAll('[role="dialog"]')).map(function(d){return d.getAttribute('aria-label')||'';})`
+  );
+
+  const clicked = await wc.executeJavaScript(`
+    (function() {
+      var banner = document.querySelector('[role="banner"]');
+      if (!banner) return false;
+      // Ưu tiên nút có svg image (avatar tròn), lấy cái cuối cùng
+      var all = Array.from(banner.querySelectorAll('[aria-haspopup]'));
+      var btn = null;
+      for (var i = all.length - 1; i >= 0; i--) {
+        if (all[i].querySelector('svg image, img[src]')) { btn = all[i]; break; }
+      }
+      if (!btn) {
+        btn = banner.querySelector('[aria-haspopup="dialog"]');
+      }
+      if (!btn) return false;
+      btn.click();
+      return true;
+    })()
+  `);
+
+  if (!clicked) throw new Error('Không tìm thấy nút avatar');
+
+  // Chờ dialog mới xuất hiện
+  await new Promise(r => setTimeout(r, 1200));
+  return existingLabels;
+}
+
+// Đọc tên tư cách hiện tại từ dialog dropdown (port từ getCurrentIdentityName master cũ)
+async function getCurrentIdentityName(wc, existingLabels) {
+  return wc.executeJavaScript(`
+    (function() {
+      var before = ${JSON.stringify(existingLabels)};
+      var existing = new Set(before);
+      var dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
+      var d = dialogs.find(function(x){ return !existing.has(x.getAttribute('aria-label')||''); })
+              || dialogs[dialogs.length - 1];
+      if (!d) return null;
+
+      // Cách 1: link /me/ trong dialog
+      var meLinks = Array.from(d.querySelectorAll('a[href*="/me/"]'));
+      for (var i = 0; i < meLinks.length; i++) {
+        var a = meLinks[i];
+        if (a.closest('[aria-hidden="true"]')) continue;
+        var sp = a.querySelector('span[dir="auto"]');
+        if (sp && sp.innerText.trim()) return sp.innerText.trim();
+      }
+
+      // Cách 2: link profile (loại path hệ thống)
+      var bad = /\\/(checkpoint|login|security|settings|help|support|groups|events|pages|watch|marketplace|messages|notifications|privacy|pin)\\b/i;
+      var links = Array.from(d.querySelectorAll('a[href]'));
+      for (var j = 0; j < links.length; j++) {
+        var a2 = links[j];
+        if (a2.closest('[aria-hidden="true"]')) continue;
+        if (a2.closest('[role="listitem"]')) continue;
+        try {
+          var u = new URL(a2.href);
+          if (!u.hostname.includes('facebook.com')) continue;
+          if (u.pathname === '/' || u.pathname === '') continue;
+          if (bad.test(u.pathname)) continue;
+          var sp2 = a2.querySelector('span[dir="auto"]');
+          if (sp2 && sp2.innerText.trim()) return sp2.innerText.trim();
+        } catch {}
+      }
+      return null;
+    })()
+  `);
+}
+
+// ─── getIdentities ─────────────────────────────────────────────────────────
+
 async function getIdentities(onLog) {
   onLog?.('Đang lấy danh sách tư cách...');
   try {
-    // Bước 1: Tên cá nhân — navigate /me → redirect → h1 (đã xác nhận chính xác 100%)
+    // Bước 1: Tên cá nhân — /me → h1 (xác nhận chính xác)
     const wcMe = await navigateFbWin('https://www.facebook.com/me', onLog);
-    if (isLoggedOut(wcMe.getURL())) {
-      onLog?.('Chưa đăng nhập Facebook.');
-      return [];
-    }
+    if (isLoggedOut(wcMe.getURL())) { onLog?.('Chưa đăng nhập Facebook.'); return []; }
 
     const personalName = await wcMe.executeJavaScript(`
       (function() {
         var h1 = document.querySelector('h1');
-        if (h1) { var t = h1.textContent.trim(); if (t.length > 0 && t.length < 100) return t; }
+        if (h1) { var t = h1.textContent.trim(); if (t && t.length < 100) return t; }
         return null;
       })()
     `);
+    onLog?.(`Tên cá nhân: "${personalName}"`);
 
-    const identities = [{
-      id:   'personal',
-      name: personalName || 'Trang cá nhân',
-      type: 'personal',
-    }];
-    onLog?.(`Tên cá nhân: "${personalName || '?'}"`);
+    const identities = [{ id: 'personal', name: personalName || 'Trang cá nhân', type: 'personal' }];
 
-    // Bước 2: Pages — tất cả page ở trang quản lý (tư cách cá nhân sẽ không xuất hiện ở đây)
-    onLog?.('Đang lấy danh sách trang...');
+    // Bước 2: Pages từ pages manager — port từ listIdentities master cũ
     try {
+      onLog?.('Đang tải danh sách trang...');
       const wcPages = await navigateFbWin(
         'https://www.facebook.com/pages/?category=your_pages&ref=bookmarks', onLog
       );
+      await new Promise(r => setTimeout(r, 2500));
 
-      // Scroll để load hết
-      for (let i = 0; i < 5; i++) {
+      // Scroll đến khi không có nội dung mới (tối đa 15 lần) — giống master cũ
+      for (let i = 0; i < 15; i++) {
+        const prevH = await wcPages.executeJavaScript('document.body.scrollHeight');
         await wcPages.executeJavaScript('window.scrollTo(0, document.body.scrollHeight)');
         await new Promise(r => setTimeout(r, 1200));
+        const newH = await wcPages.executeJavaScript('document.body.scrollHeight');
+        if (newH === prevH) break;
       }
 
-      const fbPages = await wcPages.executeJavaScript(`
+      // Scraping trong [role="main"] — port từ master cũ
+      // Điều kiện: có span[dir="auto"] + không có aria-label + không có query param (trừ profile.php)
+      const pages = await wcPages.executeJavaScript(`
         (function() {
           var results = [];
-          var seen = {};
+          var seen = new Set();
           var main = document.querySelector('[role="main"]') || document.body;
 
-          // Whitelist approach: only single-segment paths that aren't system routes
-          var SYSTEM = {
-            events:1,groups:1,watch:1,marketplace:1,login:1,checkpoint:1,settings:1,
-            help:1,messages:1,notifications:1,privacy:1,reels:1,gaming:1,fundraisers:1,
-            offers:1,jobs:1,ads:1,search:1,friends:1,discover:1,explore:1,create:1,
-            bookmarks:1,pages:1,me:1,home:1,about:1,account:1,recovery:1,security:1,
-            stories:1,saved:1,feeds:1,professional_dashboard:1,adsmanager:1,business:1,
-            monetization:1,inbox:1,video:1,videos:1,photos:1,live:1,campus:1,news:1,
-            trending:1,reel:1,following:1,followers:1,interests:1,marketplace:1
-          };
+          function isMenuPath(u) {
+            if (!u.hostname.includes('facebook.com')) return true;
+            var p = u.pathname;
+            if (p === '/' || p.length < 2) return true;
+            return /^\\/(pages(\\/|$)|settings|help|groups|events|watch|marketplace|checkpoint|login|notifications|messages|privacy|reels|gaming|fundraisers|offers|jobs|professional_dashboard|ads)(\\/|$)/i.test(p);
+          }
 
-          var links = main.querySelectorAll('a[href]');
+          var links = Array.from(main.querySelectorAll('a[href]'));
           for (var i = 0; i < links.length; i++) {
             var a = links[i];
-            if (a.getAttribute('aria-label')) continue; // nav action buttons
             try {
               var u = new URL(a.href);
-              if (!u.hostname.includes('facebook.com')) continue;
+              if (isMenuPath(u)) continue;
+              if (a.getAttribute('aria-label')) continue;
+              if (u.pathname !== '/profile.php' && u.search) continue;
+
+              var cleanUrl = (u.pathname === '/profile.php' && u.searchParams.get('id'))
+                ? u.origin + '/profile.php?id=' + u.searchParams.get('id')
+                : (u.origin + u.pathname).replace(/\\/$/, '');
+              var href = (u.pathname === '/profile.php' && u.searchParams.get('id'))
+                ? '/profile.php?id=' + u.searchParams.get('id')
+                : u.pathname.replace(/\\/$/, '');
 
               var span = a.querySelector('span[dir="auto"]');
               var name = span && span.innerText.trim();
-              if (!name || name.length < 2 || seen[name]) continue;
+              if (!name || name.length < 2 || seen.has(name)) continue;
 
-              // profile.php?id= case
-              if (u.pathname === '/profile.php') {
-                var pid = u.searchParams.get('id');
-                if (!pid) continue;
-                seen[name] = 1;
-                results.push({ id: 'page_profile_' + pid, name: name, href: '/profile.php?id=' + pid, type: 'page' });
-                continue;
-              }
-
-              // Skip links with query params
-              if (u.search) continue;
-
-              // Must be single-segment path: /PageSlug
-              var parts = u.pathname.split('/').filter(Boolean);
-              if (parts.length !== 1) continue;
-              var slug = parts[0];
-              if (slug.length < 3) continue;
-              if (SYSTEM[slug.toLowerCase()]) continue;
-
-              seen[name] = 1;
-              results.push({ id: 'page_' + slug, name: name, href: '/' + slug, type: 'page' });
+              seen.add(name);
+              results.push({ cleanUrl: cleanUrl, href: href, name: name });
             } catch {}
           }
           return results;
         })()
       `);
 
-      const existingNames = new Set(identities.map(i => i.name.toLowerCase()));
-      const unique = fbPages.filter(p => !existingNames.has(p.name.toLowerCase()));
-      identities.push(...unique);
-      onLog?.(`Tìm thấy ${unique.length} Page`);
+      onLog?.(`Tìm thấy ${pages.length} trang`);
+      for (const p of pages) {
+        const slug = p.href.replace(/^\//, '').replace(/\/$/, '') || 'page';
+        identities.push({ id: 'page_' + slug, name: p.name, type: 'page', href: p.href });
+      }
     } catch (e) {
-      onLog?.('Không lấy được Page: ' + e.message);
+      onLog?.('Lỗi tải trang: ' + e.message);
     }
 
     return identities;
@@ -342,122 +404,110 @@ async function getIdentities(onLog) {
   }
 }
 
-// Fetch nhóm cho một tư cách — dùng fbWindow trực tiếp, không cần Playwright hidden window
+// ─── fetchGroupsForIdentity ─────────────────────────────────────────────────
+// Browser đã ở đúng tư cách trước khi gọi hàm này.
+// Port từ listGroups master cũ: luôn dùng groups/joins/, scroll 10 lần, innerText cho name+meta
+
 async function fetchGroupsForIdentity(identityId, identityHref, onLog) {
-  onLog(`Đang tải nhóm cho "${identityId}"...`);
+  onLog?.(`Đang tải nhóm...`);
   try {
-    let groupsUrl = 'https://www.facebook.com/groups/joins/';
+    const wc = await navigateFbWin('https://www.facebook.com/groups/joins/', onLog);
+    await new Promise(r => setTimeout(r, 1500));
 
-    if (identityId !== 'personal' && identityHref) {
-      const cleanHref = identityHref.startsWith('/') ? identityHref : '/' + identityHref;
-      groupsUrl = `https://www.facebook.com${cleanHref}/groups`;
-    }
-
-    const wc = await navigateFbWin(groupsUrl, onLog);
-
-    // Nếu page groups không có gì (không phải page thật), fallback
-    const initialCount = await wc.executeJavaScript(
-      'document.querySelectorAll(\'a[href*="/groups/"]\').length'
-    );
-    if (identityId !== 'personal' && initialCount < 3) {
-      onLog('Page không có nhóm riêng, dùng nhóm cá nhân...');
-      await navigateFbWin('https://www.facebook.com/groups/joins/', onLog);
-    }
-
-    // Scroll để load hết
+    // Scroll đến khi không có item mới (tối đa 10 lần) — giống master cũ
     let prevCount = 0;
-    for (let i = 0; i < 8; i++) {
+    for (let i = 0; i < 10; i++) {
       await wc.executeJavaScript('window.scrollTo(0, document.body.scrollHeight)');
       await new Promise(r => setTimeout(r, 1500));
       const count = await wc.executeJavaScript(
-        'document.querySelectorAll(\'a[href*="/groups/"]\').length'
+        `document.querySelectorAll('a[href*="/groups/"]').length`
       );
       if (count === prevCount) break;
       prevCount = count;
     }
 
+    // Scraping — port từ master cũ: dùng innerText (name + meta), map by group id
     const groups = await wc.executeJavaScript(`
       (function() {
-        var NAV = {joins:1, feed:1, discover:1, create:1};
-        var links = document.querySelectorAll('a[href*="/groups/"]');
-        var seen = {};
-        var results = [];
+        var NAV_IDS = {joins:1, feed:1, discover:1, create:1};
+        var links = Array.from(document.querySelectorAll('a[href*="/groups/"]'));
+        var seen = new Map();
         for (var i = 0; i < links.length; i++) {
           var a = links[i];
           var href = a.getAttribute('href') || '';
           var m = href.match(/\\/groups\\/([^\\/?#]+)/);
           if (!m) continue;
-          var gid = m[1];
-          if (NAV[gid] || seen[gid]) continue;
-          var nameEl = a.querySelector('span') || a;
-          var name = (nameEl.textContent || '').trim();
-          if (!name || name.length < 2) continue;
-          var url = href.startsWith('http') ? href : 'https://www.facebook.com' + href;
-          seen[gid] = 1;
-          results.push({ id: gid, name: name, url: url });
+          var id = m[1];
+          if (NAV_IDS[id]) continue;
+          var lines = (a.innerText || '').split('\\n').map(function(s){return s.trim();}).filter(Boolean);
+          var name = lines[0] || '';
+          if (!name) continue;
+          var meta = lines.slice(1).join(' • ');
+          var existing = seen.get(id);
+          if (!existing || lines.length > existing.lineCount) {
+            seen.set(id, {
+              id: id,
+              name: name,
+              meta: meta,
+              url: 'https://www.facebook.com/groups/' + id,
+              lineCount: lines.length,
+            });
+          }
         }
-        return results;
+        return Array.from(seen.values()).map(function(g){
+          return { id: g.id, name: g.name, meta: g.meta, url: g.url };
+        });
       })()
     `);
 
-    onLog(`Tìm thấy ${groups.length} nhóm.`);
+    onLog?.(`Tìm thấy ${groups.length} nhóm.`);
     return { groups, error: null };
   } catch (err) {
-    onLog('Lỗi tải nhóm: ' + err.message);
+    onLog?.('Lỗi tải nhóm: ' + err.message);
     return { error: err.message, groups: [] };
   }
 }
 
-// Chuyển về tư cách cá nhân qua avatar dropdown
-// Tìm item theo tên cá nhân — vị trí có thể là 1st (đang ở cá nhân) hoặc 2nd (đang ở page)
-async function switchToPersonal(personalName, onLog) {
+// ─── switchToPersonal ───────────────────────────────────────────────────────
+// Port từ switchToPersonal master cũ:
+// Mở dropdown → kiểm tra nếu đã personal thì thoát sớm → click listitem đầu tiên có avatar
+
+async function switchToPersonal(personalName, currentIdentityId, onLog) {
   const wc = await navigateFbWin('https://www.facebook.com/', onLog);
   await new Promise(r => setTimeout(r, 1500));
 
-  // Click avatar button in banner
-  await wc.executeJavaScript(`
-    (function() {
-      var banner = document.querySelector('[role="banner"]');
-      if (!banner) return false;
-      var candidates = Array.from(banner.querySelectorAll('[aria-haspopup]'));
-      for (var i = candidates.length - 1; i >= 0; i--) {
-        if (candidates[i].querySelector('svg image, img[src]')) {
-          candidates[i].click(); return true;
-        }
-      }
-      return false;
-    })()
-  `);
-  await new Promise(r => setTimeout(r, 1500));
+  let existingLabels;
+  try {
+    existingLabels = await openIdentitySwitcher(wc);
+  } catch (e) {
+    onLog?.('Không mở được dropdown avatar: ' + e.message);
+    return false;
+  }
 
-  // Tìm listitem theo tên cá nhân, fallback theo thứ tự:
-  // - Đang ở cá nhân: personal ở vị trí 1 → click vị trí 1
-  // - Đang ở page: personal ở vị trí 2 → click vị trí 2
+  // Nếu đã ở tư cách cá nhân → đóng dropdown và return
+  if (currentIdentityId === 'personal') {
+    onLog?.('Đã ở tư cách cá nhân.');
+    await wc.executeJavaScript(
+      `document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))`
+    );
+    return true;
+  }
+
+  // Click listitem đầu tiên có avatar (svg image / img) — port từ master cũ
   const clicked = await wc.executeJavaScript(`
     (function() {
-      var targetName = ${JSON.stringify(personalName || '')};
+      var before = ${JSON.stringify(existingLabels)};
+      var existing = new Set(before);
       var dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
-      if (!dialogs.length) return false;
-      var d = dialogs[dialogs.length - 1];
-      var items = Array.from(d.querySelectorAll('[role="listitem"]'))
-        .filter(function(item) { return !!item.querySelector('svg image, img[src]'); });
-      if (!items.length) return false;
-
-      // Ưu tiên: tìm theo tên
-      if (targetName) {
-        for (var i = 0; i < items.length; i++) {
-          if ((items[i].innerText || '').includes(targetName)) {
-            var el = items[i].querySelector('a, [role="button"]');
-            if (el) { el.click(); return true; }
-          }
-        }
+      var d = dialogs.find(function(x){ return !existing.has(x.getAttribute('aria-label')||''); })
+              || dialogs[dialogs.length - 1];
+      if (!d) return false;
+      var items = Array.from(d.querySelectorAll('[role="listitem"]'));
+      for (var i = 0; i < items.length; i++) {
+        if (!items[i].querySelector('svg image, img[src]')) continue;
+        var el = items[i].querySelector('a, [role="button"]');
+        if (el) { el.click(); return true; }
       }
-
-      // Fallback: vị trí 2 (đang ở page → personal là item thứ 2)
-      // nếu chỉ có 1 item thì click item đó
-      var idx = items.length >= 2 ? 1 : 0;
-      var el2 = items[idx].querySelector('a, [role="button"]');
-      if (el2) { el2.click(); return true; }
       return false;
     })()
   `);
@@ -469,37 +519,42 @@ async function switchToPersonal(personalName, onLog) {
   return clicked;
 }
 
-// Chuyển sang tư cách page: về cá nhân trước → vào trang page → click "Chuyển ngay"
-// personalName cần thiết để tìm đúng item trong dropdown
-async function switchIdentityOnBrowser(identityId, identityName, identityHref, personalName, onLog) {
+// ─── switchIdentityOnBrowser ────────────────────────────────────────────────
+// Port từ doSwitch master cũ:
+// Về cá nhân trước → navigate page URL → tìm "Chuyển ngay" → confirm dialog
+
+async function switchIdentityOnBrowser(identityId, identityName, identityHref, personalName, currentIdentityId, onLog) {
   if (identityId === 'personal') {
-    onLog?.('Đang chuyển về tư cách cá nhân...');
-    await switchToPersonal(personalName, onLog);
-    return { ok: true };
+    return await switchToPersonal(personalName, currentIdentityId, onLog)
+      ? { ok: true }
+      : { error: 'Không thể chuyển về tư cách cá nhân' };
   }
 
-  // 1. Về tư cách cá nhân trước
-  onLog?.('Chuyển về tư cách cá nhân trước...');
-  await switchToPersonal(personalName, onLog);
+  // 1. Về cá nhân trước nếu chưa ở đó
+  if (currentIdentityId !== 'personal') {
+    onLog?.('Chuyển về tư cách cá nhân trước...');
+    await switchToPersonal(personalName, currentIdentityId, onLog);
+  }
 
-  // 2. Mở trang page
+  // 2. Navigate vào trang page
   const cleanHref = (identityHref || '').startsWith('/') ? identityHref : '/' + identityHref;
   const pageUrl   = `https://www.facebook.com${cleanHref}`;
   onLog?.(`Mở trang: ${pageUrl}`);
   const wc = await navigateFbWin(pageUrl, onLog);
   await new Promise(r => setTimeout(r, 2000));
 
-  // 3. Ghi nhận dialogs hiện có
-  const dialogsBefore = await wc.executeJavaScript(`
-    Array.from(document.querySelectorAll('[role="dialog"]')).map(function(d) { return d.getAttribute('aria-label') || ''; })
-  `);
+  // 3. Ghi nhận dialogs trước khi click
+  const dialogsBefore = await wc.executeJavaScript(
+    `Array.from(document.querySelectorAll('[role="dialog"]')).map(function(d){return d.getAttribute('aria-label')||'';})`
+  );
 
-  // 4. Tìm và click nút "Chuyển ngay" (trong card có data-visualcompletion="css-img" + span[dir="auto"])
+  // 4. Tìm nút "Chuyển ngay" trong [role="main"]
+  // Card đặc trưng: [data-visualcompletion="css-img"] + span[dir="auto"] trong ancestor ≤5 cấp
   const clicked = await wc.executeJavaScript(`
     (function() {
       var main = document.querySelector('[role="main"]');
       if (!main) return false;
-      var buttons = main.querySelectorAll('[role="button"]');
+      var buttons = Array.from(main.querySelectorAll('[role="button"]'));
       for (var i = 0; i < buttons.length; i++) {
         var btn = buttons[i];
         if (!btn.innerText || !btn.innerText.trim()) continue;
@@ -513,28 +568,29 @@ async function switchIdentityOnBrowser(identityId, identityName, identityHref, p
           }
         }
         if (!found) continue;
-        btn.click(); return true;
+        btn.click();
+        return true;
       }
       return false;
     })()
   `);
 
   if (!clicked) {
-    onLog?.('Không tìm thấy nút "Chuyển ngay" trên trang.');
+    onLog?.('Không tìm thấy nút "Chuyển ngay".');
     return { error: 'Không tìm thấy nút chuyển tư cách' };
   }
 
-  onLog?.('Đang xác nhận...');
+  onLog?.('Đang xác nhận chuyển tư cách...');
   await new Promise(r => setTimeout(r, 1500));
 
-  // 5. Confirm trong modal mới
+  // 5. Click nút confirm trong modal mới
   await wc.executeJavaScript(`
     (function() {
       var before = ${JSON.stringify(dialogsBefore)};
       var beforeSet = new Set(before);
       var dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
-      var modal = dialogs.find(function(d) { return !beforeSet.has(d.getAttribute('aria-label') || ''); })
-        || dialogs[dialogs.length - 1];
+      var modal = dialogs.find(function(d){ return !beforeSet.has(d.getAttribute('aria-label')||''); })
+                  || dialogs[dialogs.length - 1];
       if (!modal) return false;
       var btns = Array.from(modal.querySelectorAll('[role="button"]'));
       for (var i = 0; i < btns.length; i++) {
@@ -546,6 +602,10 @@ async function switchIdentityOnBrowser(identityId, identityName, identityHref, p
 
   await new Promise(r => setTimeout(r, 4000));
   onLog?.(`Đã chuyển sang: ${identityName}`);
+
+  // Về trang chủ sau khi chuyển (giống master cũ)
+  navigateFbWin('https://www.facebook.com/', onLog).catch(() => {});
+
   return { ok: true };
 }
 

@@ -126,6 +126,13 @@ async function pollAndExecute() {
 
         } else if (task.type === 'fetch_groups') {
           const identityId   = task.payload?.identityId || currentIdentityId;
+          if (cachedIdentities.length === 0) {
+            try {
+              const r = await api('get', '/identities');
+              cachedIdentities = r.data?.identities || [];
+              setStatus({ identities: cachedIdentities });
+            } catch {}
+          }
           const identity     = cachedIdentities.find(i => i.id === identityId);
           const fetchResult  = await fetchGroupsForIdentity(identityId, identity?.href, onLog);
           if (!fetchResult.error && fetchResult.groups.length > 0) {
@@ -141,12 +148,20 @@ async function pollAndExecute() {
         } else if (task.type === 'switch_identity') {
           const { identityId } = task.payload || {};
           if (identityId) {
+            // Load từ DB nếu cache rỗng (agent vừa restart)
+            if (cachedIdentities.length === 0) {
+              try {
+                const r = await api('get', '/identities');
+                cachedIdentities = r.data?.identities || [];
+                setStatus({ identities: cachedIdentities });
+              } catch {}
+            }
             const identity = cachedIdentities.find(i => i.id === identityId);
 
             // Thực hiện chuyển tư cách trên browser
             const personalIdentity = cachedIdentities.find(i => i.id === 'personal');
             const switchResult = await switchIdentityOnBrowser(
-              identityId, identity?.name, identity?.href, personalIdentity?.name, onLog
+              identityId, identity?.name, identity?.href, personalIdentity?.name, currentIdentityId, onLog
             );
 
             if (!switchResult?.error) {
