@@ -1,4 +1,12 @@
-export type PostStatus = 'pending' | 'processing' | 'commenting' | 'success' | 'error' | 'cancelled';
+export type PostStatus =
+  | 'pending'
+  | 'uploading'
+  | 'writing'
+  | 'posting'
+  | 'commenting'
+  | 'success'
+  | 'error'
+  | 'cancelled';
 
 export interface PostStatusItem {
   url: string;

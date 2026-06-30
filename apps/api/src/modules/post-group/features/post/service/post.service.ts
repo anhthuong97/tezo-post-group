@@ -5,7 +5,7 @@ import { CreatePostDto } from '../dto/create-post.dto';
 export interface PostStatusItem {
   url: string;
   name: string;
-  status: 'pending' | 'processing' | 'success' | 'error' | 'cancelled';
+  status: 'pending' | 'uploading' | 'writing' | 'posting' | 'commenting' | 'success' | 'error' | 'cancelled';
   message: string;
   postLink?: string;
   doneAt?: string;
@@ -24,6 +24,7 @@ export class PostService {
 
     const taskId = await this.agent.createTask(userId, 'post_groups', dto);
     this.taskMap.set(userId, { taskId, groups: dto.groups });
+    this.agent.initGroupStatus(taskId, dto.groups);
   }
 
   async getStatus(userId: number): Promise<PostStatusItem[]> {
@@ -33,10 +34,19 @@ export class PostService {
     const task = await this.agent.getTaskById(entry.taskId);
     if (!task) return [];
 
+    // Dùng per-group status từ agent nếu có
+    const groupStatuses = this.agent.getGroupStatuses(entry.taskId);
+    if (groupStatuses && groupStatuses.length > 0) {
+      return entry.groups.map((g) =>
+        groupStatuses.find((s) => s.url === g.url) ||
+        { url: g.url, name: g.name, status: 'pending', message: 'Đang chờ...' }
+      ) as PostStatusItem[];
+    }
+
+    // Fallback khi chưa có group status
     if (task.status === 'pending') {
       return entry.groups.map((g) => ({
-        url: g.url, name: g.name,
-        status: 'pending', message: 'Đang chờ agent...',
+        url: g.url, name: g.name, status: 'pending', message: 'Đang chờ agent...',
       }));
     }
 
@@ -44,8 +54,7 @@ export class PostService {
       const logs: string[] = task.logs || [];
       const lastLog = logs[logs.length - 1] || 'Agent đang xử lý...';
       return entry.groups.map((g) => ({
-        url: g.url, name: g.name,
-        status: 'processing', message: lastLog,
+        url: g.url, name: g.name, status: 'pending', message: lastLog,
       }));
     }
 
@@ -75,6 +84,23 @@ export class PostService {
     return task?.logs || [];
   }
 
-  cancelGroup(_userId: number, _url: string): void { /* Agent handles cancellation */ }
-  cancelAllPending(_userId: number): void { /* Agent handles cancellation */ }
+  cancelGroup(userId: number, url: string): void {
+    const entry = this.taskMap.get(userId);
+    if (!entry) return;
+    this.agent.addCancelUrl(entry.taskId, url);
+    this.agent.updateGroupStatus(entry.taskId, url, 'cancelled', 'Đã hủy');
+  }
+
+  cancelAllPending(userId: number): void {
+    const entry = this.taskMap.get(userId);
+    if (!entry) return;
+    const statuses = this.agent.getGroupStatuses(entry.taskId) || [];
+    const pendingUrls = statuses
+      .filter((s) => s.status === 'pending')
+      .map((s) => s.url);
+    this.agent.cancelAllUrls(entry.taskId, pendingUrls);
+    for (const url of pendingUrls) {
+      this.agent.updateGroupStatus(entry.taskId, url, 'cancelled', 'Đã hủy');
+    }
+  }
 }

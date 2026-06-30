@@ -222,7 +222,8 @@ async function commentOnPost(page, commentText, postHeadline, onLog) {
   }
 }
 
-async function postToGroup(page, groupUrl, content, imagePaths, onLog) {
+async function postToGroup(page, groupUrl, content, imagePaths, onLog, onStep) {
+  const step = onStep || (() => {});
   try {
     onLog(`Đang mở nhóm: ${groupUrl}`);
     await page.goto(groupUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -236,8 +237,9 @@ async function postToGroup(page, groupUrl, content, imagePaths, onLog) {
     const dialog = page.getByRole('dialog').last();
     await dialog.waitFor({ state: 'visible', timeout: 15000 });
 
-    // Upload ảnh: click icon Ảnh/video để trigger file chooser (locale vi-VN → label cố định)
+    // Upload ảnh
     if (imagePaths && imagePaths.length > 0) {
+      step(groupUrl, 'uploading', 'Đang tải ảnh lên...');
       onLog(`  Gắn ${imagePaths.length} ảnh...`);
       try {
         const [fileChooser] = await Promise.all([
@@ -254,10 +256,10 @@ async function postToGroup(page, groupUrl, content, imagePaths, onLog) {
     }
 
     if (content) {
+      step(groupUrl, 'writing', 'Đang viết nội dung...');
       const textbox = page.getByRole('textbox').last();
       await textbox.click();
       await page.waitForTimeout(300);
-      // Gõ 10 ký tự đầu từng chữ để kích hoạt React editor, sau đó type phần còn lại
       const head = content.slice(0, Math.min(10, content.length));
       const tail  = content.slice(head.length);
       await page.keyboard.type(head, { delay: 80 });
@@ -265,7 +267,8 @@ async function postToGroup(page, groupUrl, content, imagePaths, onLog) {
       await page.waitForTimeout(800);
     }
 
-    // Intercept GraphQL để lấy post ID trước khi click đăng
+    step(groupUrl, 'posting', 'Đang đăng bài...');
+
     let capturedPostId = null;
     const responseHandler = async (response) => {
       if (capturedPostId) return;
@@ -280,7 +283,6 @@ async function postToGroup(page, groupUrl, content, imagePaths, onLog) {
     };
     page.on('response', responseHandler);
 
-    // Chờ nút Đăng hết disabled (aria-disabled="true" → false khi có content/ảnh)
     await page.waitForFunction(() => {
       const d = document.querySelector('[role="dialog"]');
       if (!d) return false;
@@ -289,7 +291,6 @@ async function postToGroup(page, groupUrl, content, imagePaths, onLog) {
     }, { timeout: 15000 }).catch(() => {});
 
     try {
-      // Click nút Đăng bằng textContent (text tĩnh, locale vi-VN cố định)
       await page.evaluate(() => {
         const d = document.querySelector('[role="dialog"]');
         if (!d) return;
@@ -299,7 +300,6 @@ async function postToGroup(page, groupUrl, content, imagePaths, onLog) {
         );
         if (postBtn) postBtn.click();
       });
-      // Chờ dialog "Tạo bài viết" đóng (không dùng .last() tránh match dialog khác)
       await page.waitForFunction(() => {
         return !Array.from(document.querySelectorAll('[role="dialog"]'))
           .some(d => d.getAttribute('aria-label') === 'Tạo bài viết');
@@ -322,13 +322,19 @@ async function postToGroup(page, groupUrl, content, imagePaths, onLog) {
     return { success: true, url: groupUrl, postLink };
   } catch (err) {
     onLog(`✗ Lỗi tại ${groupUrl}: ${err.message}`);
+    step(groupUrl, 'error', err.message);
     return { success: false, url: groupUrl, error: err.message };
   }
 }
 
 async function runPostTask(task, onLog, onNeedLogin) {
   const { groups, content, images, productLink, comment, delayMin = 15, delayMax = 45 } = task.payload;
+  const onStep       = task._onStep      || (() => {});
+  const isCancelled  = task._isCancelled || (() => false);
   const results = [];
+
+  // Init all groups as pending
+  for (const g of groups) onStep(g.url || g, 'pending', 'Đang chờ...');
 
   let ctx, page;
   try {
@@ -337,24 +343,35 @@ async function runPostTask(task, onLog, onNeedLogin) {
     return { error: 'Không thể đăng nhập Facebook: ' + err.message, results: [] };
   }
 
-  // Download ảnh từ VPS một lần, dùng lại cho tất cả nhóm
-  // _serverUrl được inject bởi agent.js trước khi gọi runPostTask
   const serverUrl   = task._serverUrl || '';
   const imagePaths  = serverUrl && images?.length
     ? await downloadImages(images, serverUrl, onLog)
     : [];
 
   for (let i = 0; i < groups.length; i++) {
-    const g      = groups[i];
-    const result = await postToGroup(page, g.url || g, content, imagePaths, onLog);
+    const g    = groups[i];
+    const gUrl = g.url || g;
+
+    // Check cancel trước khi bắt đầu nhóm này
+    if (await isCancelled(gUrl)) {
+      onLog(`Bỏ qua nhóm đã hủy: ${g.name || gUrl}`);
+      results.push({ success: false, url: gUrl, error: 'Cancelled' });
+      continue;
+    }
+
+    const result = await postToGroup(page, gUrl, content, imagePaths, onLog, onStep);
     results.push(result);
 
-    // Comment sau khi đăng (thay {link bài viết} bằng link thực)
+    // Comment sau khi đăng
     if (result.success && comment) {
       const postHeadline = (content || '').split('\n')[0].trim();
       const commentText  = comment.replace('{link bài viết}', result.postLink || productLink || '');
+      onStep(gUrl, 'commenting', 'Đang viết comment...');
       onLog('  Đang viết comment...');
       await commentOnPost(page, commentText, postHeadline, onLog);
+      onStep(gUrl, 'success', 'Đăng thành công!', result.postLink || undefined);
+    } else if (result.success) {
+      onStep(gUrl, 'success', 'Đăng thành công!', result.postLink || undefined);
     }
 
     if (i < groups.length - 1) {
@@ -418,8 +435,8 @@ async function navigateFbWin(url, onLog) {
   const { app } = require('electron');
   let win = app.getFbWindow?.();
   if (!win || win.isDestroyed()) {
-    win = app.createFbWindow?.();
-    if (!win) throw new Error('Browser chưa mở. Hãy click "Hiện Browser" trước.');
+    win = app.ensureFbWindow?.();
+    if (!win) throw new Error('Không thể mở browser.');
   }
   await new Promise((resolve, reject) => {
     const t = setTimeout(() => reject(new Error('Navigation timeout: ' + url)), 30000);
@@ -578,8 +595,8 @@ async function getIdentities(onLog) {
   onLog?.('Đang lấy danh sách tư cách...');
   try {
     const { app } = require('electron');
-    const fbWin = app.getFbWindow?.();
-    if (!fbWin || fbWin.isDestroyed()) throw new Error('Browser chưa mở. Hãy click "Hiện Browser" trước.');
+    const fbWin = app.ensureFbWindow?.() || app.getFbWindow?.();
+    if (!fbWin || fbWin.isDestroyed()) throw new Error('Không thể mở browser.');
     if (isLoggedOut(fbWin.webContents.getURL())) { onLog?.('Chưa đăng nhập Facebook.'); return []; }
 
     const scrapePages = async () => {

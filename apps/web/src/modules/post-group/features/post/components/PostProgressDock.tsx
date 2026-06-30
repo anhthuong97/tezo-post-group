@@ -10,7 +10,8 @@ export function PostProgressDock({ items, onOpen }: PostProgressDockProps) {
   const done   = items.filter((i) => i.status === 'success').length;
   const errors = items.filter((i) => i.status === 'error').length;
   const total  = items.length;
-  const active = items.some((i) => i.status === 'processing' || i.status === 'commenting');
+  const ACTIVE = new Set(['uploading', 'writing', 'posting', 'commenting', 'pending']);
+  const active = items.some((i) => ACTIVE.has(i.status));
 
   if (!total) return null;
 

@@ -22,7 +22,7 @@
       padding: 10px 16px; font-size: 12px; font-weight: 500;
       border-bottom: 1px solid #e5e7eb;
     }
-    .dot { width: 8px; height: 8px; border-radius: 50%; background: #d1d5db; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #d1d5db; flex-shrink: 0; }
     .dot.green  { background: #22c55e; }
     .dot.red    { background: #ef4444; }
     .dot.yellow { background: #f59e0b; animation: pulse 1s infinite; }
@@ -43,14 +43,17 @@
     }
 
     .btn {
-      width: 100%; padding: 9px; border: none; border-radius: 6px;
+      padding: 9px; border: none; border-radius: 6px;
       font-size: 13px; font-weight: 600; cursor: pointer;
     }
+    .btn-full { width: 100%; }
     .btn-primary { background: #1877f2; color: white; }
     .btn-primary:hover { background: #1561d4; }
     .btn-primary:disabled { opacity: .5; cursor: default; }
-    .btn-danger { background: #fee2e2; color: #dc2626; }
-    .btn-danger:hover { background: #fecaca; }
+    .btn-danger  { background: #fee2e2; color: #dc2626; }
+    .btn-danger:hover  { background: #fecaca; }
+    .btn-success { background: #dcfce7; color: #16a34a; }
+    .btn-success:hover { background: #bbf7d0; }
 
     .error-msg { color: #dc2626; font-size: 12px; min-height: 16px; }
 
@@ -61,8 +64,25 @@
     }
     .task-bar.show { display: block; }
 
+    /* Browser status row */
+    .browser-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 10px; border-radius: 6px;
+      background: #f3f4f6; border: 1px solid #e5e7eb;
+    }
+    .browser-label { flex: 1; font-size: 12px; font-weight: 500; color: #374151; }
+    .browser-label span { font-size: 11px; font-weight: 400; color: #6b7280; margin-left: 4px; }
+    .btn-sm {
+      padding: 5px 10px; font-size: 11px; font-weight: 600;
+      border: none; border-radius: 5px; cursor: pointer;
+    }
+    .btn-sm-open   { background: #dbeafe; color: #1d4ed8; }
+    .btn-sm-open:hover  { background: #bfdbfe; }
+    .btn-sm-close  { background: #fee2e2; color: #dc2626; }
+    .btn-sm-close:hover { background: #fecaca; }
+
     /* Sections */
-    #sectionLogin    { display: flex; flex-direction: column; gap: 10px; }
+    #sectionLogin     { display: flex; flex-direction: column; gap: 10px; }
     #sectionConnected { display: none; flex-direction: column; gap: 10px; }
     body.connected #sectionLogin     { display: none; }
     body.connected #sectionConnected { display: flex; }
@@ -99,7 +119,7 @@
         <input id="password" type="password" autocomplete="current-password" />
       </div>
       <p class="error-msg" id="errorMsg"></p>
-      <button class="btn btn-primary" id="btnConnect">Kết nối</button>
+      <button class="btn btn-full btn-primary" id="btnConnect">Kết nối</button>
     </div>
 
     <!-- Đã kết nối -->
@@ -112,8 +132,19 @@
         <label>Tên đăng nhập</label>
         <input id="usernameRO" readonly />
       </div>
+
+      <!-- Browser Chrome status -->
+      <div class="browser-row">
+        <div class="dot" id="browserDot"></div>
+        <div class="browser-label">
+          Browser<span id="browserStatus">Chưa mở</span>
+        </div>
+        <button class="btn-sm btn-sm-open"  id="btnOpenBrowser">Mở</button>
+        <button class="btn-sm btn-sm-close" id="btnCloseBrowser">Đóng</button>
+      </div>
+
       <div class="task-bar" id="taskBar"></div>
-      <button class="btn btn-danger" id="btnDisconnect">Ngắt kết nối</button>
+      <button class="btn btn-full btn-danger" id="btnDisconnect">Ngắt kết nối</button>
     </div>
 
   </div>

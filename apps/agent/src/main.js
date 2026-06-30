@@ -38,7 +38,8 @@ function createFbWindow() {
   });
   fbWindow.maximize();
   fbWindow.loadURL('https://www.facebook.com');
-  fbWindow.on('closed', () => { fbWindow = null; });
+  fbWindow.once('ready-to-show', () => broadcastBrowserStatus());
+  fbWindow.on('closed', () => { fbWindow = null; broadcastBrowserStatus(); });
   return fbWindow;
 }
 
@@ -130,16 +131,29 @@ async function doLogin(onLog) {
   });
 }
 
+function isBrowserOpen() {
+  return !!(fbWindow && !fbWindow.isDestroyed());
+}
+
+function broadcastBrowserStatus() {
+  if (popup && !popup.isDestroyed()) {
+    popup.webContents.send('browser-status', { open: isBrowserOpen() });
+  }
+}
+
 app.showBrowser   = showBrowser;
 app.hideBrowser   = hideBrowser;
 app.doLogin       = doLogin;
 app.getFbWindow   = () => (fbWindow && !fbWindow.isDestroyed() ? fbWindow : null);
 app.createFbWindow = createFbWindow;
+// Auto-create fbWindow if not open (used by facebook.js tasks that need the browser)
+app.ensureFbWindow = () => createFbWindow();
 
 // ─── IPC handlers ─────────────────────────────────────────────────────────
 
-ipcMain.handle('get-settings', () => getSettings());
-ipcMain.handle('get-status',   () => agent.getStatus());
+ipcMain.handle('get-settings',    () => getSettings());
+ipcMain.handle('get-status',      () => ({ ...agent.getStatus(), browserOpen: isBrowserOpen() }));
+ipcMain.handle('get-browser-status', () => ({ open: isBrowserOpen() }));
 
 ipcMain.handle('save-settings', (_, data) => {
   saveSettings(data);
@@ -159,6 +173,33 @@ ipcMain.handle('stop-agent', () => agent.stop());
 
 ipcMain.handle('minimize', () => {
   if (popup && !popup.isDestroyed()) popup.hide();
+});
+
+ipcMain.handle('open-browser', () => {
+  createFbWindow();
+  broadcastBrowserStatus();
+  return { ok: true };
+});
+
+ipcMain.handle('close-browser', () => {
+  if (fbWindow && !fbWindow.isDestroyed()) fbWindow.close();
+  broadcastBrowserStatus();
+  return { ok: true };
+});
+
+ipcMain.handle('show-browser', () => {
+  showBrowser();
+  return { ok: true };
+});
+
+ipcMain.handle('login-facebook', async () => {
+  const onLog = (msg) => popup?.webContents.send('log-message', msg);
+  return doLogin(onLog);
+});
+
+ipcMain.handle('clear-session', () => {
+  clearSession();
+  return { ok: true };
 });
 
 // ─── Tray ─────────────────────────────────────────────────────────────────

@@ -14,9 +14,8 @@ export function usePostStatus() {
       const res = await postApi.status();
       if (res?.status) {
         setStatus(res.status);
-        const active = res.status.some((i: PostStatusItem) =>
-          i.status === 'pending' || i.status === 'processing' || i.status === 'commenting'
-        );
+        const ACTIVE_STATUSES = new Set(['pending', 'uploading', 'writing', 'posting', 'commenting']);
+        const active = res.status.some((i: PostStatusItem) => ACTIVE_STATUSES.has(i.status));
         setPosting(active);
       }
     } catch {}

@@ -122,7 +122,16 @@ async function pollAndExecute() {
         } else if (task.type === 'post_groups') {
           const { runPostTask } = require('./facebook');
           const onNeedLogin = () => setStatus({ needLogin: true });
-          task._serverUrl = settings.serverUrl; // inject để facebook.js download ảnh
+          task._serverUrl = settings.serverUrl;
+          task._onStep = (url, status, step, postLink) => {
+            api('post', `/tasks/${task.id}/group-update`, { url, status, step, postLink }).catch(() => {});
+          };
+          task._isCancelled = async (url) => {
+            try {
+              const res = await api('get', `/tasks/${task.id}/cancelled`);
+              return (res.data?.cancelledUrls || []).includes(url);
+            } catch { return false; }
+          };
           result = await runPostTask(task, onLog, onNeedLogin);
 
         } else if (task.type === 'fetch_groups') {

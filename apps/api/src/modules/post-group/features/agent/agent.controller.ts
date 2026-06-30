@@ -84,6 +84,26 @@ export class AgentController {
     return { ok: true };
   }
 
+  // Agent cập nhật status từng nhóm trong task đăng bài
+  @Post('tasks/:id/group-update')
+  @HttpCode(200)
+  async groupUpdate(
+    @Param('id', ParseIntPipe) id: number,
+    @Body('url')     url: string,
+    @Body('status')  status: string,
+    @Body('step')    step?: string,
+    @Body('postLink') postLink?: string,
+  ) {
+    this.svc.updateGroupStatus(id, url, status, step, postLink);
+    return { ok: true };
+  }
+
+  // Agent hỏi URLs nào cần cancel
+  @Get('tasks/:id/cancelled')
+  async getCancelled(@Param('id', ParseIntPipe) id: number) {
+    return { cancelledUrls: this.svc.getCancelledUrls(id) };
+  }
+
   // Agent báo danh sách tư cách về VPS
   @Post('identities')
   @HttpCode(200)
