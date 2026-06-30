@@ -507,13 +507,15 @@ async function getIdentities(onLog) {
           ? { name: firstName(currentLink) }
           : null;
 
-        // Identity switch buttons = [role="listitem"] CÓ [role="button"] mà KHÔNG CÓ a[href]
-        // (phân biệt với menu items = [role="listitem"] có a[href])
-        var listitems = Array.from(d.querySelectorAll('[role="listitem"]'));
+        // Identity switch buttons nằm trong [role="list"] ĐẦU TIÊN trong dialog.
+        // List thứ 2 chứa menu items (Cài đặt, Trợ giúp...) — cũng dùng [role="button"]
+        // nên KHÔNG được query toàn dialog, chỉ lấy từ list[0].
+        var identityList = d.querySelector('[role="list"]');
+        var listitems = identityList ? Array.from(identityList.querySelectorAll('[role="listitem"]')) : [];
         var switchBtns = [];
         for (var i = 0; i < listitems.length; i++) {
           var li = listitems[i];
-          if (li.querySelector('a[href]')) continue;       // menu item → skip
+          if (li.querySelector('a[href]')) continue;       // link item → skip
           var btn = li.querySelector('[role="button"]');
           if (!btn) continue;
           var name = firstName(btn);
@@ -570,7 +572,8 @@ async function getIdentities(onLog) {
           var d = dialogs.find(function(x){ return !existing.has(x.getAttribute('aria-label')||''); })
                   || dialogs[dialogs.length - 1];
           if (!d) return { status: 'no_dialog' };
-          var listitems = Array.from(d.querySelectorAll('[role="listitem"]'));
+          var identityList = d.querySelector('[role="list"]');
+          var listitems = identityList ? Array.from(identityList.querySelectorAll('[role="listitem"]')) : [];
           for (var i = 0; i < listitems.length; i++) {
             var li = listitems[i];
             if (li.querySelector('a[href]')) continue;

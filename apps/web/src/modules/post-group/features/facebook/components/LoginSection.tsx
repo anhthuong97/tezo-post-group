@@ -199,13 +199,22 @@ export function LoginSection({
                 </button>
               </div>
 
-              {/* Khi đang chuyển tư cách: hiện spinner, khoá hoàn toàn — giống logic master cũ */}
+              {/* Khi đang chuyển tư cách: hiện tên tư cách đích + spinner, khoá click */}
               {switching ? (
-                <div className="w-full flex items-center gap-2 px-3 py-2 text-xs text-blue-500
-                                bg-blue-50 border border-blue-200 rounded-lg
+                <div className="w-full flex items-center justify-between gap-2 px-3 py-2 text-sm
+                                bg-white border border-blue-300 rounded-lg
                                 pointer-events-none select-none">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-                  Đang chuyển tư cách...
+                  <span className="flex items-center gap-2 min-w-0">
+                    <span className={`text-xs px-1.5 py-0.5 rounded font-medium shrink-0 ${
+                      currentIdentity?.type === 'page' ? 'bg-purple-100 text-purple-700' : 'bg-blue-100 text-blue-700'
+                    }`}>
+                      {currentIdentity?.type === 'page' ? 'Page' : 'Cá nhân'}
+                    </span>
+                    <span className="truncate font-medium text-gray-800">
+                      {currentIdentity?.name || 'Trang cá nhân'}
+                    </span>
+                  </span>
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-400 shrink-0" />
                 </div>
               ) : syncingIdentities ? (
                 <div className="w-full flex items-center gap-2 px-3 py-2 text-xs text-blue-500
