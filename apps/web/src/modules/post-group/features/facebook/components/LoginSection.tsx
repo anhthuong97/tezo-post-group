@@ -28,6 +28,8 @@ export function LoginSection({
   const [loginMsg, setLoginMsg]               = useState('');
   const [actionMsg, setActionMsg]             = useState('');
   const [syncingIdentities, setSyncingIdents] = useState(false);
+  const [syncLogs, setSyncLogs]               = useState<string[]>([]);
+  const [syncTaskError, setSyncTaskError]     = useState('');
 
   const activeId   = currentIdentity?.id || 'personal';
   const isLoggedIn = identities.length > 0;
@@ -90,25 +92,35 @@ export function LoginSection({
 
   const handleSyncIdentities = async () => {
     setSyncingIdents(true);
+    setSyncLogs([]);
+    setSyncTaskError('');
     try {
       const res = await dispatch('sync_identities');
       if (!res?.success) {
-        showAction(res?.error || 'Agent chưa kết nối.');
+        setSyncTaskError(res?.error || 'Agent chưa kết nối.');
         return;
       }
-      // Giữ lock cho đến khi identities cập nhật (tối đa 30s)
-      const snapshot = identities.map(i => i.id).sort().join(',');
-      const deadline = Date.now() + 30_000;
+
+      const taskId: number = res.taskId;
+
+      // Poll task logs + status để hiện tiến trình cho user
+      const deadline = Date.now() + 60_000;
       while (Date.now() < deadline) {
-        await new Promise(r => setTimeout(r, 2000));
+        await new Promise(r => setTimeout(r, 1500));
         try {
-          const fresh: any = await api.get(ENDPOINTS.agent.identities);
-          const newSnap = (fresh?.identities || []).map((i: any) => i.id).sort().join(',');
-          if (newSnap && newSnap !== snapshot) break;
+          const t: any = await api.get(`${ENDPOINTS.agent.task}/${taskId}`);
+          const task = t?.task;
+          if (task?.logs?.length) setSyncLogs([...task.logs]);
+          if (task?.status === 'done') break;
+          if (task?.status === 'error') {
+            const errMsg = task?.result?.error || 'Task thất bại';
+            setSyncTaskError(errMsg);
+            break;
+          }
         } catch {}
       }
     } catch (e: any) {
-      showAction(e.message || 'Lỗi');
+      setSyncTaskError(e.message || 'Lỗi');
     } finally {
       setSyncingIdents(false);
     }
@@ -217,11 +229,39 @@ export function LoginSection({
                   <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-400 shrink-0" />
                 </div>
               ) : syncingIdentities ? (
-                <div className="w-full flex items-center gap-2 px-3 py-2 text-xs text-blue-500
-                                bg-blue-50 border border-blue-200 rounded-lg
-                                pointer-events-none select-none">
-                  <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-                  Đang tải tư cách...
+                <div className="space-y-1.5">
+                  <div className="w-full flex items-center gap-2 px-3 py-2 text-xs text-blue-500
+                                  bg-blue-50 border border-blue-200 rounded-lg
+                                  pointer-events-none select-none">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
+                    Đang tải tư cách...
+                  </div>
+                  {syncLogs.length > 0 && (
+                    <div className="bg-gray-900 rounded-lg px-2.5 py-2 max-h-32 overflow-y-auto space-y-0.5">
+                      {syncLogs.map((log, i) => (
+                        <p key={i} className="text-[10px] text-gray-300 font-mono leading-tight">{log}</p>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : syncTaskError ? (
+                <div className="space-y-1.5">
+                  <div className="w-full px-3 py-2 text-xs text-red-600 bg-red-50 border border-red-200 rounded-lg">
+                    Lỗi: {syncTaskError}
+                  </div>
+                  {syncLogs.length > 0 && (
+                    <div className="bg-gray-900 rounded-lg px-2.5 py-2 max-h-32 overflow-y-auto space-y-0.5">
+                      {syncLogs.map((log, i) => (
+                        <p key={i} className="text-[10px] text-gray-300 font-mono leading-tight">{log}</p>
+                      ))}
+                    </div>
+                  )}
+                  <button
+                    onClick={() => setSyncTaskError('')}
+                    className="text-xs text-gray-400 hover:text-gray-600 underline"
+                  >
+                    Đóng
+                  </button>
                 </div>
               ) : (
                 <>

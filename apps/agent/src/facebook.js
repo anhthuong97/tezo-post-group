@@ -17,16 +17,22 @@ async function ensureBrowser() {
 }
 
 // Sync cookies từ fbWindow (Electron session) → SESSION_PATH để Playwright dùng.
-// Gọi trước khi tạo Playwright context mới, đảm bảo session luôn fresh.
-async function syncSessionFromFbWindow() {
+async function syncSessionFromFbWindow(onLog) {
   try {
-    const { app, session } = require('electron');
+    const { session } = require('electron');
     const fbWin = app.getFbWindow?.();
-    if (!fbWin || fbWin.isDestroyed()) return;
+    if (!fbWin || fbWin.isDestroyed()) {
+      onLog?.('[Session] fbWindow chưa mở — bỏ qua sync cookie');
+      return;
+    }
     const url = fbWin.webContents.getURL();
-    if (!url.includes('facebook.com') || isLoggedOut(url)) return;
-
+    onLog?.('[Session] fbWindow URL: ' + url);
+    if (!url.includes('facebook.com') || isLoggedOut(url)) {
+      onLog?.('[Session] fbWindow chưa login Facebook');
+      return;
+    }
     const cookies = await session.defaultSession.cookies.get({ domain: '.facebook.com' });
+    onLog?.('[Session] Lấy được ' + cookies.length + ' cookie từ Electron session');
     if (!cookies.length) return;
 
     const state = {
@@ -43,26 +49,42 @@ async function syncSessionFromFbWindow() {
       origins: [],
     };
     fs.writeFileSync(SESSION_PATH, JSON.stringify(state));
-  } catch {}
+    onLog?.('[Session] Đã ghi SESSION_PATH (' + cookies.length + ' cookies)');
+  } catch (e) {
+    onLog?.('[Session] Lỗi sync cookie: ' + e.message);
+  }
 }
 
 // Tạo/dùng lại Playwright isolated context.
-// Sync session từ fbWindow trước khi tạo context mới.
-async function getOrCreateContext() {
+async function getOrCreateContext(onLog) {
+  onLog?.('[PW] ensureBrowser...');
   const b = await ensureBrowser();
+  onLog?.('[PW] browser OK, isConnected=' + b.isConnected());
 
-  if (playwrightCtx && !playwrightCtx.isDisposed()) return playwrightCtx;
+  if (playwrightCtx && !playwrightCtx.isDisposed()) {
+    onLog?.('[PW] Dùng lại context cũ');
+    return playwrightCtx;
+  }
 
-  // Lấy session mới nhất từ fbWindow (nếu đang mở) trước khi tạo context
-  await syncSessionFromFbWindow();
+  onLog?.('[PW] Tạo context mới — sync session trước...');
+  await syncSessionFromFbWindow(onLog);
+
+  const hasSession = fs.existsSync(SESSION_PATH);
+  onLog?.('[PW] SESSION_PATH tồn tại: ' + hasSession);
 
   const opts = {
     userAgent: CHROME_UA,
     viewport:  VIEWPORT,
     locale:    'vi-VN',
-    ...(fs.existsSync(SESSION_PATH) ? { storageState: SESSION_PATH } : {}),
+    ...(hasSession ? { storageState: SESSION_PATH } : {}),
   };
-  playwrightCtx = await b.newContext(opts);
+  try {
+    playwrightCtx = await b.newContext(opts);
+    onLog?.('[PW] newContext OK');
+  } catch (e) {
+    onLog?.('[PW] newContext FAILED: ' + e.message);
+    throw e;
+  }
   return playwrightCtx;
 }
 
@@ -70,26 +92,30 @@ function isLoggedOut(url) {
   return ['/login', '/checkpoint', '/two_step_verification', '/recover'].some(p => url.includes(p));
 }
 
-async function ensureLoggedIn(onNeedLogin) {
-  let ctx   = await getOrCreateContext();
+async function ensureLoggedIn(onNeedLogin, onLog) {
+  let ctx   = await getOrCreateContext(onLog);
   let pages = ctx.pages();
   let page  = pages.length > 0 ? pages[0] : await ctx.newPage();
 
+  onLog?.('[PW] Đang navigate facebook.com để kiểm tra login...');
   await page.goto('https://www.facebook.com', { waitUntil: 'domcontentloaded', timeout: 30000 });
+  onLog?.('[PW] URL sau goto: ' + page.url());
 
   if (isLoggedOut(page.url())) {
-    // Session hết hạn — thử sync lại từ fbWindow và tạo context mới
-    await syncSessionFromFbWindow();
+    onLog?.('[PW] Chưa login — thử sync session từ fbWindow...');
+    await syncSessionFromFbWindow(onLog);
     if (fs.existsSync(SESSION_PATH)) {
       try { await ctx.close(); } catch {}
       playwrightCtx = null;
-      ctx   = await getOrCreateContext();
+      ctx   = await getOrCreateContext(onLog);
       pages = ctx.pages();
       page  = pages.length > 0 ? pages[0] : await ctx.newPage();
       await page.goto('https://www.facebook.com', { waitUntil: 'domcontentloaded', timeout: 30000 });
+      onLog?.('[PW] URL sau retry: ' + page.url());
     }
 
     if (isLoggedOut(page.url())) {
+      onLog?.('[PW] Vẫn chưa login — yêu cầu đăng nhập thủ công');
       onNeedLogin(page);
       await page.waitForFunction(
         () => !window.location.href.includes('/login') && !window.location.href.includes('/checkpoint'),
@@ -97,6 +123,8 @@ async function ensureLoggedIn(onNeedLogin) {
       );
       await ctx.storageState({ path: SESSION_PATH });
     }
+  } else {
+    onLog?.('[PW] Đã login Facebook OK');
   }
   return { ctx, page };
 }
@@ -105,7 +133,7 @@ async function fetchGroups(onLog) {
   onLog('Đang kết nối browser...');
   let ctx, page;
   try {
-    ({ ctx, page } = await ensureLoggedIn(() => onLog('Cần đăng nhập Facebook trước!')));
+    ({ ctx, page } = await ensureLoggedIn(() => onLog('Cần đăng nhập Facebook trước!'), onLog));
   } catch (err) {
     return { error: 'Không thể kết nối browser: ' + err.message, groups: [] };
   }
@@ -482,11 +510,14 @@ async function loginFacebook(onLog, onShowBrowser, onHideBrowser, doLogin) {
 // Lấy/tạo Playwright page rồi navigate tới URL, trả về page với shim
 // executeJavaScript + sendInputEvent để code gốc không cần sửa.
 async function navigatePW(url, onLog) {
-  const ctx   = await getOrCreateContext();
+  onLog?.('[PW] navigatePW → ' + url);
+  const ctx   = await getOrCreateContext(onLog);
   const pages = ctx.pages();
   const page  = pages.length > 0 ? pages[0] : await ctx.newPage();
 
+  onLog?.('[PW] page OK, đang goto...');
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  onLog?.('[PW] goto done → ' + page.url());
   await page.waitForTimeout(2000);
 
   // Shim: page.executeJavaScript(str) → page.evaluate(str)
