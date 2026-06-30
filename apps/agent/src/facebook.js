@@ -376,7 +376,7 @@ async function forcePersonalIdentity(wc, onLog) {
 // ─── getIdentities ─────────────────────────────────────────────────────────
 
 async function getIdentities(onLog) {
-  onLog?.('[v5] getIdentities start');
+  onLog?.('[v7] getIdentities start');
   onLog?.('Đang lấy danh sách tư cách...');
   try {
     const { app } = require('electron');
@@ -384,28 +384,15 @@ async function getIdentities(onLog) {
     if (!fbWin || fbWin.isDestroyed()) throw new Error('Browser chưa mở. Hãy click "Hiện Browser" trước.');
     if (isLoggedOut(fbWin.webContents.getURL())) { onLog?.('Chưa đăng nhập Facebook.'); return []; }
 
-    const normSlug = (href) => {
-      if (!href) return '';
-      try {
-        const str = href.includes('://') ? href : 'https://www.facebook.com' + href;
-        const u = new URL(str);
-        if (!u.hostname.includes('facebook.com')) return '';
-        if (u.pathname === '/profile.php') return 'profile:' + (u.searchParams.get('id') || '');
-        const seg = u.pathname.replace(/^\//, '').split('/')[0].split('?')[0].toLowerCase();
-        return seg || '';
-      } catch { return ''; }
-    };
-
-    // Helper scrape /pages/ → trả về mảng {name, href, cleanUrl}
     const scrapePages = async () => {
       const wc = await navigateFbWin(
         'https://www.facebook.com/pages/?category=your_pages&ref=bookmarks', onLog
       );
       for (let i = 0; i < 20; i++) {
-        const hasCards = await wc.executeJavaScript(
+        const ok = await wc.executeJavaScript(
           `!!(document.querySelector('[role="main"] a[role="link"]:not([aria-label]) span[dir="auto"]'))`
         );
-        if (hasCards) break;
+        if (ok) break;
         await new Promise(r => setTimeout(r, 500));
       }
       for (let i = 0; i < 15; i++) {
@@ -417,6 +404,7 @@ async function getIdentities(onLog) {
           if (newH === prevH) break;
         } catch { break; }
       }
+      const NLS = String.fromCharCode(10);
       return wc.executeJavaScript(`
         (function() {
           var NL = String.fromCharCode(10);
@@ -434,16 +422,14 @@ async function getIdentities(onLog) {
             try {
               var u = new URL(a.href);
               if (!u.hostname.includes('facebook.com')) continue;
-              var href, cleanUrl;
+              var href;
               if (u.pathname === '/profile.php' && u.searchParams.get('id')) {
                 href = '/profile.php?id=' + u.searchParams.get('id');
-                cleanUrl = u.origin + href;
               } else if (u.pathname.length > 1) {
                 href = u.pathname.replace(/\\/$/, '').split('?')[0];
-                cleanUrl = u.origin + href;
               } else { continue; }
               seen.add(name);
-              results.push({ name: name, href: href, cleanUrl: cleanUrl });
+              results.push({ name: name, href: href });
             } catch {}
           }
           return results;
@@ -451,18 +437,19 @@ async function getIdentities(onLog) {
       `);
     };
 
-    // ── Bước 1: Lấy page slugs (để nhận diện personal trong dropdown) ─────────
-    // Làm trước khi mở dropdown vì cần data để so sánh.
-    // Dùng kết quả này làm slug set; sau khi switch sẽ lấy lại để có danh sách đầy đủ.
-    onLog?.('[Step1] lấy page slugs từ /pages/...');
+    // ── Bước 1: Lấy page names (để nhận diện personal từ dropdown) ──────────
+    onLog?.('[Step1] lấy pages từ /pages/...');
     const pagesForCompare = await scrapePages();
-    const pageSlugSet  = new Set(pagesForCompare.map(p => normSlug(p.cleanUrl)).filter(Boolean));
-    const pageNameSet  = new Set(pagesForCompare.map(p => (p.name || '').trim().toLowerCase()));
-    onLog?.('[Step1] ' + pagesForCompare.length + ' pages, slugs=' + JSON.stringify([...pageSlugSet]));
+    const pageNameSet = new Set(pagesForCompare.map(p => (p.name || '').trim().toLowerCase()));
+    onLog?.('[Step1] ' + pagesForCompare.length + ' pages: ' + pagesForCompare.map(p=>p.name).join(', '));
 
-    // ── Bước 2: Mở dropdown, tìm personal trong LISTITEM (không dùng header) ──
-    // Header luôn có href="/me/" → normSlug = "me" → không dùng được để detect.
-    // Personal account KHI đang ở page identity sẽ là listitem có slug KHÔNG trong pageSlugSet.
+    // ── Bước 2: Mở dropdown, đọc tư cách ────────────────────────────────────
+    // Cấu trúc dropdown (từ DOM thực):
+    //   [role="dialog"]
+    //     └── a[href="/me/"]                ← current identity header (link sang profile)
+    //     └── [role="listitem"] + [role="button"] (NO a[href])  ← identity switch buttons
+    //     └── [role="listitem"] + a[href]                        ← menu items (MBS, Cài đặt...)
+    // → Phân biệt identity vs menu: listitem CÓ [role="button"] mà KHÔNG CÓ a[href]
     onLog?.('[Step2] navigate home + mở dropdown...');
     const wcHome = await navigateFbWin('https://www.facebook.com/', onLog);
 
@@ -483,103 +470,127 @@ async function getIdentities(onLog) {
     try { existingLabels = await openIdentitySwitcher(wcHome, onLog); }
     catch (e) { throw new Error('Không mở được dropdown: ' + e.message); }
 
+    // Đọc dropdown: current header + identity switch buttons
     const dropdownData = await wcHome.executeJavaScript(`
       (function() {
         var NL = String.fromCharCode(10);
+        function firstName(el) {
+          if (!el) return '';
+          var spans = Array.from(el.querySelectorAll('span[dir="auto"]'));
+          for (var i = 0; i < spans.length; i++) {
+            var t = (spans[i].innerText || '').trim();
+            if (t && t.length > 1) {
+              var pos = t.indexOf(NL); return pos > 0 ? t.slice(0,pos).trim() : t;
+            }
+          }
+          var t = (el.innerText || '').trim();
+          var pos = t.indexOf(NL); return pos > 0 ? t.slice(0,pos).trim() : t;
+        }
+
         var before = ${JSON.stringify(existingLabels)};
         var existing = new Set(before);
         var dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
         var d = dialogs.find(function(x){ return !existing.has(x.getAttribute('aria-label')||''); })
                 || dialogs[dialogs.length - 1];
         if (!d) return { error: 'no_dialog' };
-        function firstLine(el) {
-          var raw = (el ? el.innerText || '' : '').trim();
-          var pos = raw.indexOf(NL); return pos > 0 ? raw.slice(0, pos).trim() : raw;
-        }
-        var allLinks = Array.from(d.querySelectorAll('a[href]'));
-        var listitemSet = new Set(Array.from(d.querySelectorAll('[role="listitem"] a[href]')));
-        var headerLinks = allLinks.filter(function(a){
-          return !listitemSet.has(a) && a.href && a.href.includes('facebook.com/') && !a.href.includes('/pages/');
+
+        // Current identity = a[href] trong dialog có pathname "/me" hoặc "/me/"
+        var allAnchors = Array.from(d.querySelectorAll('a[href]'));
+        var currentLink = allAnchors.find(function(a) {
+          try {
+            var p = new URL(a.href).pathname;
+            if (p.charAt(p.length-1) === '/') p = p.slice(0,-1);
+            return p === '/me';
+          } catch { return false; }
         });
-        var current = null;
-        if (headerLinks.length) {
-          var a = headerLinks[0];
-          current = { name: firstLine(a.querySelector('[dir="auto"]') || a), href: a.href };
+        var current = currentLink
+          ? { name: firstName(currentLink) }
+          : null;
+
+        // Identity switch buttons = [role="listitem"] CÓ [role="button"] mà KHÔNG CÓ a[href]
+        // (phân biệt với menu items = [role="listitem"] có a[href])
+        var listitems = Array.from(d.querySelectorAll('[role="listitem"]'));
+        var switchBtns = [];
+        for (var i = 0; i < listitems.length; i++) {
+          var li = listitems[i];
+          if (li.querySelector('a[href]')) continue;       // menu item → skip
+          var btn = li.querySelector('[role="button"]');
+          if (!btn) continue;
+          var name = firstName(btn);
+          if (name && name.length > 1) switchBtns.push({ name: name });
         }
-        var items = Array.from(d.querySelectorAll('[role="listitem"]')).map(function(el) {
-          var link = el.querySelector('a[href]');
-          if (!link || !link.href.includes('facebook.com')) return null;
-          return { name: firstLine(link.querySelector('[dir="auto"]') || link), href: link.href };
-        }).filter(Boolean);
-        return { current: current, items: items };
+
+        return { current: current, switchBtns: switchBtns };
       })()
     `);
 
-    onLog?.('[Step2] current=' + JSON.stringify(dropdownData.current) + ' items=' + (dropdownData.items?.length));
+    onLog?.('[Step2] current=' + JSON.stringify(dropdownData.current) + ' switchBtns=' + JSON.stringify(dropdownData.switchBtns));
     if (dropdownData.error) throw new Error('Dropdown: ' + dropdownData.error);
 
-    // Tìm personal: tìm trong LISTITEM TRƯỚC (header có href="/me/" không đáng tin)
-    const listitems = dropdownData.items || [];
-    let personalItem = listitems.find(function(x) {
-      const slug = normSlug(x.href);
-      return slug && slug !== 'me' && !pageSlugSet.has(slug);
-    });
-
+    // Tìm personal trong identity switch buttons (tên không có trong pages)
+    const switchBtns = dropdownData.switchBtns || [];
+    let personalName = null;
     let needsSwitch = false;
-    if (personalItem) {
-      // Tìm thấy personal trong listitem → đang ở page identity → cần switch
-      personalItem = Object.assign({}, personalItem, { isCurrent: false });
+    let switchToName = null;
+
+    const personalBtn = switchBtns.find(x => x.name && !pageNameSet.has(x.name.trim().toLowerCase()));
+    if (personalBtn) {
+      // Tìm thấy personal trong switch buttons → đang ở page identity → cần switch
+      personalName = personalBtn.name;
       needsSwitch = true;
-      onLog?.('[Step2] personal ở listitem: ' + personalItem.name + ' → cần switch');
+      switchToName = personalBtn.name;
+      onLog?.('[Step2] personal ở switch button: ' + personalName + ' → cần switch');
     } else {
-      // Không có listitem nào ngoài pageSlugSet → đang ở personal identity
-      personalItem = dropdownData.current
-        ? Object.assign({}, dropdownData.current, { isCurrent: true })
-        : null;
-      // Fallback theo tên nếu slug parse lỗi
-      if (!personalItem || pageNameSet.has((personalItem.name || '').trim().toLowerCase())) {
-        const byName = listitems.find(x => x.name && !pageNameSet.has(x.name.trim().toLowerCase()));
-        if (byName) {
-          personalItem = Object.assign({}, byName, { isCurrent: false });
-          needsSwitch = true;
-          onLog?.('[Step2] fallback by name: ' + personalItem.name);
-        }
-      }
-      if (!needsSwitch) onLog?.('[Step2] đã ở tư cách cá nhân: ' + personalItem?.name);
+      // Không có switch button nào ngoài pages → đang ở personal identity
+      personalName = dropdownData.current?.name || 'Trang cá nhân';
+      onLog?.('[Step2] đã ở tư cách cá nhân: ' + personalName);
     }
 
-    const personalName = personalItem?.name || 'Trang cá nhân';
-
     // ── Bước 3: Switch về personal nếu cần ──────────────────────────────────
-    if (needsSwitch && personalItem) {
-      onLog?.('[Step3] switch về: ' + personalName);
+    if (needsSwitch && switchToName) {
+      onLog?.('[Step3] switch về: ' + switchToName);
       const clickResult = await wcHome.executeJavaScript(`
         (function() {
+          var targetName = ${JSON.stringify(switchToName)};
+          var NL = String.fromCharCode(10);
+          function firstName(el) {
+            if (!el) return '';
+            var spans = Array.from(el.querySelectorAll('span[dir="auto"]'));
+            for (var i = 0; i < spans.length; i++) {
+              var t = (spans[i].innerText || '').trim();
+              if (t && t.length > 1) {
+                var pos = t.indexOf(NL); return pos > 0 ? t.slice(0,pos).trim() : t;
+              }
+            }
+            return (el.innerText || '').trim().split(NL)[0].trim();
+          }
           var before = ${JSON.stringify(existingLabels)};
           var existing = new Set(before);
           var dialogs = Array.from(document.querySelectorAll('[role="dialog"]'));
           var d = dialogs.find(function(x){ return !existing.has(x.getAttribute('aria-label')||''); })
                   || dialogs[dialogs.length - 1];
           if (!d) return { status: 'no_dialog' };
-          var targetHref = ${JSON.stringify(personalItem.href)};
-          var target = Array.from(d.querySelectorAll('[role="listitem"]')).find(function(el) {
-            var a = el.querySelector('a[href]');
-            return a && a.href === targetHref;
-          });
-          if (!target) return { status: 'not_found', wanted: targetHref };
-          var el = target.querySelector('a[href]') || target.querySelector('[role="button"]');
-          if (el) { el.click(); return { status: 'clicked' }; }
-          target.click(); return { status: 'clicked_item' };
+          var listitems = Array.from(d.querySelectorAll('[role="listitem"]'));
+          for (var i = 0; i < listitems.length; i++) {
+            var li = listitems[i];
+            if (li.querySelector('a[href]')) continue;
+            var btn = li.querySelector('[role="button"]');
+            if (!btn) continue;
+            if (firstName(btn) === targetName) {
+              btn.click();
+              return { status: 'clicked', name: targetName };
+            }
+          }
+          return { status: 'not_found', target: targetName };
         })()
       `);
       onLog?.('[Step3] click=' + JSON.stringify(clickResult));
-      if (clickResult?.status?.startsWith('clicked')) {
+      if (clickResult?.status === 'clicked') {
         onLog?.('Đang chuyển về tư cách cá nhân...');
         await new Promise(r => setTimeout(r, 3000));
         onLog?.('Đã chuyển về tư cách cá nhân');
       }
     } else if (!needsSwitch) {
-      // Đóng dropdown
       try {
         await wcHome.executeJavaScript(
           `document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}))`
@@ -589,7 +600,7 @@ async function getIdentities(onLog) {
 
     onLog?.(`Tên cá nhân: "${personalName}"`);
 
-    // ── Bước 4: Lấy pages đầy đủ (bây giờ chắc chắn đang ở tư cách cá nhân) ─
+    // ── Bước 4: Lấy pages đầy đủ (đang ở tư cách cá nhân) ──────────────────
     onLog?.('[Step4] lấy pages đầy đủ...');
     const pages = needsSwitch ? await scrapePages() : pagesForCompare;
     onLog?.('[Step4] ' + pages.length + ' pages');
