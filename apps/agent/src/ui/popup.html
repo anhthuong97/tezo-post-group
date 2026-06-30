@@ -34,31 +34,38 @@
     input {
       width: 100%; padding: 7px 10px;
       border: 1px solid #d0d5dd; border-radius: 6px;
-      font-size: 13px; outline: none;
+      font-size: 13px; outline: none; background: white;
     }
     input:focus { border-color: #1877f2; }
+    input[readonly] {
+      background: #f3f4f6; color: #6b7280; cursor: default;
+      border-color: #e5e7eb;
+    }
 
-    .row { display: flex; gap: 8px; }
-    .btn { flex: 1; padding: 8px; border: none; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer; }
+    .btn {
+      width: 100%; padding: 9px; border: none; border-radius: 6px;
+      font-size: 13px; font-weight: 600; cursor: pointer;
+    }
     .btn-primary { background: #1877f2; color: white; }
     .btn-primary:hover { background: #1561d4; }
     .btn-primary:disabled { opacity: .5; cursor: default; }
-    .btn-gray { background: #f3f4f6; color: #374151; }
-    .btn-gray:hover { background: #e5e7eb; }
+    .btn-danger { background: #fee2e2; color: #dc2626; }
+    .btn-danger:hover { background: #fecaca; }
 
-    .divider { height: 1px; background: #e5e7eb; }
+    .error-msg { color: #dc2626; font-size: 12px; min-height: 16px; }
 
-    .log-box {
-      background: #111; color: #86efac; font-family: monospace;
-      font-size: 11px; padding: 8px; border-radius: 6px;
-      height: 90px; overflow-y: auto; white-space: pre-wrap;
+    .task-bar {
+      background: #dbeafe; color: #1e40af;
+      padding: 8px 10px; border-radius: 6px; font-size: 12px;
+      display: none;
     }
+    .task-bar.show { display: block; }
 
-    .task-info { background: #dbeafe; color: #1e40af; padding: 8px 10px; border-radius: 6px; font-size: 12px; display: none; }
-    .task-info.show { display: block; }
-
-    .error-msg { color: #dc2626; font-size: 12px; }
-    .hint { font-size: 11px; color: #6b7280; background: #f9fafb; border-radius: 6px; padding: 8px 10px; }
+    /* Sections */
+    #sectionLogin    { display: flex; flex-direction: column; gap: 10px; }
+    #sectionConnected { display: none; flex-direction: column; gap: 10px; }
+    body.connected #sectionLogin     { display: none; }
+    body.connected #sectionConnected { display: flex; }
   </style>
 </head>
 <body>
@@ -76,35 +83,39 @@
   </div>
 
   <div class="body">
-    <div>
-      <label>URL Server</label>
-      <input id="serverUrl" placeholder="http://157.10.201.146" />
-    </div>
-    <div>
-      <label>Tên đăng nhập</label>
-      <input id="username" placeholder="admin" autocomplete="username" />
-    </div>
-    <div>
-      <label>Mật khẩu</label>
-      <input id="password" type="password" placeholder="••••••••" autocomplete="current-password" />
-    </div>
-    <p class="error-msg" id="errorMsg"></p>
 
-    <div class="row">
+    <!-- Chưa kết nối -->
+    <div id="sectionLogin">
+      <div>
+        <label>URL Server</label>
+        <input id="serverUrl" autocomplete="off" />
+      </div>
+      <div>
+        <label>Tên đăng nhập</label>
+        <input id="username" autocomplete="username" />
+      </div>
+      <div>
+        <label>Mật khẩu</label>
+        <input id="password" type="password" autocomplete="current-password" />
+      </div>
+      <p class="error-msg" id="errorMsg"></p>
       <button class="btn btn-primary" id="btnConnect">Kết nối</button>
-      <button class="btn btn-gray"    id="btnDisconnect" style="display:none">Ngắt kết nối</button>
     </div>
 
-    <div class="divider"></div>
-
-    <p class="hint">Sau khi kết nối, truy cập <strong>webapp TeZo</strong> để đăng nhập Facebook và quản lý nhóm.</p>
-
-    <div class="task-info" id="taskInfo"></div>
-
-    <div>
-      <label>Log</label>
-      <div class="log-box" id="logBox">Chờ kết nối...</div>
+    <!-- Đã kết nối -->
+    <div id="sectionConnected">
+      <div>
+        <label>URL Server</label>
+        <input id="serverUrlRO" readonly />
+      </div>
+      <div>
+        <label>Tên đăng nhập</label>
+        <input id="usernameRO" readonly />
+      </div>
+      <div class="task-bar" id="taskBar"></div>
+      <button class="btn btn-danger" id="btnDisconnect">Ngắt kết nối</button>
     </div>
+
   </div>
 
   <script src="popup.js"></script>

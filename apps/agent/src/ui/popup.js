@@ -2,51 +2,46 @@ const $ = (id) => document.getElementById(id);
 
 const dot        = $('dot');
 const statusText = $('statusText');
-const logBox     = $('logBox');
-const taskInfo   = $('taskInfo');
 const errorMsg   = $('errorMsg');
+const taskBar    = $('taskBar');
 const btnConnect = $('btnConnect');
 const btnDisc    = $('btnDisconnect');
 
-function addLog(msg) {
-  logBox.textContent += '\n' + msg;
-  logBox.scrollTop = logBox.scrollHeight;
-}
-
 function applyStatus(s) {
   if (s.connected) {
-    dot.className = 'dot green';
-    statusText.textContent = 'Đã kết nối VPS';
-    btnConnect.style.display = 'none';
-    btnDisc.style.display    = '';
-    errorMsg.textContent     = '';
+    document.body.classList.add('connected');
+    dot.className        = s.currentTask ? 'dot yellow' : 'dot green';
+    statusText.textContent = s.currentTask ? 'Đang thực hiện task...' : 'Đã kết nối VPS';
   } else {
-    dot.className = 'dot red';
+    document.body.classList.remove('connected');
+    dot.className        = s.error ? 'dot red' : 'dot';
     statusText.textContent = s.error || 'Chưa kết nối';
-    btnConnect.style.display = '';
-    btnDisc.style.display    = 'none';
     if (s.error) errorMsg.textContent = s.error;
   }
 
   if (s.currentTask) {
-    dot.className = 'dot yellow';
-    taskInfo.className = 'task-info show';
-    taskInfo.textContent = `⚙️ Task #${s.currentTask.id}: ${s.currentTask.lastLog || s.currentTask.type}`;
-    if (s.currentTask.lastLog) addLog(s.currentTask.lastLog);
+    taskBar.className   = 'task-bar show';
+    taskBar.textContent = `⚙️ Task #${s.currentTask.id}: ${s.currentTask.lastLog || s.currentTask.type}`;
   } else {
-    taskInfo.className = 'task-info';
+    taskBar.className = 'task-bar';
   }
 }
 
-// Load settings
+// Load saved settings vào form
 window.tezo.getSettings().then((s) => {
-  if (s.serverUrl) $('serverUrl').value = s.serverUrl;
-  if (s.username)  $('username').value  = s.username;
+  if (s.serverUrl) {
+    $('serverUrl').value   = s.serverUrl;
+    $('serverUrlRO').value = s.serverUrl;
+  }
+  if (s.username) {
+    $('username').value   = s.username;
+    $('usernameRO').value = s.username;
+  }
 });
 
 window.tezo.getStatus().then(applyStatus);
 window.tezo.onStatus(applyStatus);
-window.tezo.onLog((msg) => addLog(msg));
+// Log chỉ hiện trên web UI — không xử lý ở đây
 
 btnConnect.addEventListener('click', async () => {
   const serverUrl = $('serverUrl').value.trim();
@@ -58,20 +53,26 @@ btnConnect.addEventListener('click', async () => {
     return;
   }
   errorMsg.textContent = '';
-  dot.className = 'dot yellow';
+  dot.className        = 'dot yellow';
   statusText.textContent = 'Đang kết nối...';
-  btnConnect.disabled = true;
+  btnConnect.disabled  = true;
 
   await window.tezo.saveSettings({ serverUrl, username, password, autoStart: true });
   const res = await window.tezo.startAgent();
   btnConnect.disabled = false;
-  if (res?.error) errorMsg.textContent = res.error;
+
+  if (res?.error) {
+    errorMsg.textContent = res.error;
+  } else {
+    // Cập nhật readonly fields với giá trị vừa nhập
+    $('serverUrlRO').value = serverUrl;
+    $('usernameRO').value  = username;
+  }
 });
 
 btnDisc.addEventListener('click', async () => {
   await window.tezo.stopAgent();
   applyStatus({ connected: false, error: null });
-  addLog('Đã ngắt kết nối.');
 });
 
 $('btnMinimize').addEventListener('click', () => {
