@@ -110,7 +110,119 @@ async function fetchGroups(onLog) {
   return { groups };
 }
 
-async function postToGroup(page, groupUrl, content, onLog) {
+// Download ảnh từ VPS về thư mục temp
+async function downloadImages(imageNames, serverUrl, onLog) {
+  if (!imageNames || imageNames.length === 0) return [];
+  const os      = require('os');
+  const https   = require('https');
+  const http    = require('http');
+  const tmpDir  = path.join(os.tmpdir(), 'tezo_imgs');
+  fs.mkdirSync(tmpDir, { recursive: true });
+  const paths = [];
+  for (const name of imageNames) {
+    const dest = path.join(tmpDir, name);
+    const url  = `${serverUrl}/uploads/${name}`;
+    try {
+      await new Promise((resolve, reject) => {
+        const out    = fs.createWriteStream(dest);
+        const client = url.startsWith('https') ? https : http;
+        client.get(url, (res) => {
+          if (res.statusCode !== 200) { reject(new Error(`HTTP ${res.statusCode}`)); return; }
+          res.pipe(out);
+          out.on('finish', resolve);
+          out.on('error', reject);
+        }).on('error', reject);
+      });
+      paths.push(dest);
+      onLog(`  Đã tải ảnh: ${name}`);
+    } catch (e) {
+      onLog(`  Bỏ qua ảnh ${name}: ${e.message}`);
+    }
+  }
+  return paths;
+}
+
+// Lấy link bài viết sau khi đăng
+async function getPostLink(page, postHeadline, onLog) {
+  try {
+    const text = (postHeadline || '').slice(0, 25);
+    if (text) {
+      await page.waitForFunction(
+        (t) => Array.from(document.querySelectorAll('[data-ad-rendering-role="story_message"]'))
+          .some((d) => d.textContent.includes(t)),
+        text, { timeout: 8000 }
+      ).catch(() => {});
+    }
+    await page.waitForTimeout(1000);
+    const result = await page.evaluate(({ t }) => {
+      const isPost = (href) => href && (href.includes('/posts/') || href.includes('/permalink/') || href.includes('story_fbid'));
+      const divs   = document.querySelectorAll('[data-ad-rendering-role="story_message"]');
+      let target   = null;
+      for (const d of divs) { if (d.textContent.includes(t)) { target = d; break; } }
+      if (!target && divs.length > 0) target = divs[0];
+      if (target) {
+        let el = target;
+        for (let i = 0; i < 35; i++) {
+          el = el.parentElement; if (!el) break;
+          for (const a of el.querySelectorAll('a[href]')) {
+            if (isPost(a.href) && a.href.includes('facebook.com'))
+              return { link: a.href.split('?')[0] };
+          }
+        }
+      }
+      for (const a of document.querySelectorAll('a[href]')) {
+        if (isPost(a.href) && a.href.includes('facebook.com'))
+          return { link: a.href.split('?')[0] };
+      }
+      return { link: null };
+    }, { t: text });
+    if (result.link) onLog(`  Link bài: ${result.link}`);
+    return result.link || null;
+  } catch (e) {
+    onLog(`  getPostLink lỗi: ${e.message}`);
+    return null;
+  }
+}
+
+// Comment vào bài vừa đăng
+async function commentOnPost(page, commentText, postHeadline, onLog) {
+  try {
+    await page.waitForTimeout(3000);
+    const searchText = (postHeadline || '').slice(0, 30);
+    let commentBox;
+    if (searchText) {
+      const handle = await page.evaluateHandle((text) => {
+        const divs = document.querySelectorAll('[data-ad-rendering-role="story_message"]');
+        let target = null;
+        for (const d of divs) { if (d.textContent.includes(text)) { target = d; break; } }
+        if (!target) return null;
+        let el = target;
+        for (let i = 0; i < 30; i++) {
+          el = el.parentElement; if (!el) break;
+          const box = el.querySelector('[role="textbox"][data-lexical-editor="true"]');
+          if (box) return box;
+        }
+        return null;
+      }, searchText);
+      if (await handle.evaluate((el) => el !== null)) commentBox = handle.asElement();
+    }
+    if (!commentBox) {
+      commentBox = page.locator('[role="textbox"][data-lexical-editor="true"]').first();
+    }
+    await commentBox.scrollIntoViewIfNeeded();
+    await page.waitForTimeout(500);
+    await commentBox.click();
+    await page.waitForTimeout(500);
+    await page.keyboard.type(commentText, { delay: 20 + Math.floor(Math.random() * 30) });
+    await page.keyboard.press('Enter');
+    await page.waitForTimeout(2000);
+    onLog('  Đã comment.');
+  } catch (e) {
+    onLog(`  commentOnPost lỗi: ${e.message}`);
+  }
+}
+
+async function postToGroup(page, groupUrl, content, imagePaths, onLog) {
   try {
     onLog(`Đang mở nhóm: ${groupUrl}`);
     await page.goto(groupUrl, { waitUntil: 'domcontentloaded', timeout: 30000 });
@@ -124,19 +236,91 @@ async function postToGroup(page, groupUrl, content, onLog) {
     const dialog = page.getByRole('dialog').last();
     await dialog.waitFor({ state: 'visible', timeout: 15000 });
 
-    const textbox = page.getByRole('textbox').last();
-    await textbox.click();
-    await page.keyboard.type(content, { delay: 30 + Math.floor(Math.random() * 40) });
-    await page.waitForTimeout(1000);
+    // Upload ảnh trước khi nhập text (Facebook xử lý tốt hơn theo thứ tự này)
+    if (imagePaths && imagePaths.length > 0) {
+      onLog(`  Gắn ${imagePaths.length} ảnh...`);
+      try {
+        // Thử click từng nút trong dialog, chờ file chooser xuất hiện
+        let fileChooser = null;
+        const btnCandidates = [
+          // input[type=file] ẩn — Playwright setInputFiles không cần click
+          () => dialog.locator('input[type="file"]').first(),
+          // Các nút trong toolbar đính kèm (theo cấu trúc DOM, không dùng label)
+          () => dialog.locator('[role="button"]').nth(1),
+          () => dialog.locator('[role="button"]').nth(2),
+          () => dialog.locator('[role="button"]').nth(0),
+        ];
+        for (const getBtn of btnCandidates) {
+          try {
+            const btn = getBtn();
+            const tag = await btn.evaluate((el) => el.tagName.toLowerCase()).catch(() => '');
+            if (tag === 'input') {
+              await btn.setInputFiles(imagePaths);
+              fileChooser = { setFiles: () => {} }; // already set
+              break;
+            }
+            const [fc] = await Promise.all([
+              page.waitForEvent('filechooser', { timeout: 5000 }),
+              btn.click(),
+            ]);
+            fileChooser = fc;
+            break;
+          } catch {}
+        }
+        if (fileChooser && typeof fileChooser.setFiles === 'function') {
+          await fileChooser.setFiles(imagePaths);
+        }
+        onLog('  Chờ ảnh tải xong...');
+        await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {});
+        await page.waitForTimeout(2000);
+      } catch (e) {
+        onLog(`  Upload ảnh thất bại: ${e.message}`);
+      }
+    }
+
+    if (content) {
+      const textbox = page.getByRole('textbox').last();
+      await textbox.click();
+      await page.keyboard.type(content, { delay: 30 + Math.floor(Math.random() * 40) });
+      await page.waitForTimeout(1000);
+    }
+
+    // Intercept GraphQL để lấy post ID trước khi click đăng
+    let capturedPostId = null;
+    const responseHandler = async (response) => {
+      if (capturedPostId) return;
+      if (!response.url().includes('graphql')) return;
+      try {
+        const text = await response.text();
+        const m = text.match(/"story_id"\s*:\s*"(\d+)"/)
+                || text.match(/"post_id"\s*:\s*"(\d+)"/)
+                || text.match(/"id"\s*:\s*"(\d{15,})"/);
+        if (m) capturedPostId = m[1];
+      } catch {}
+    };
+    page.on('response', responseHandler);
 
     const postBtn = page.getByRole('button', { name: /^đăng$|^post$/i }).last();
     await postBtn.waitFor({ state: 'visible', timeout: 15000 });
-    await postBtn.click();
-    await dialog.waitFor({ state: 'hidden', timeout: 30000 });
-    await page.waitForTimeout(1000);
+    try {
+      await postBtn.click();
+      await dialog.waitFor({ state: 'hidden', timeout: 30000 });
+      await page.waitForTimeout(2000);
+    } finally {
+      page.off('response', responseHandler);
+    }
 
     onLog(`✓ Đã đăng vào: ${groupUrl}`);
-    return { success: true, url: groupUrl };
+    const groupId = (groupUrl.match(/groups\/(\d+)/) || [])[1];
+    let postLink  = null;
+    if (capturedPostId && groupId) {
+      postLink = `https://www.facebook.com/groups/${groupId}/posts/${capturedPostId}/`;
+      onLog(`  Link bài (graphql): ${postLink}`);
+    } else {
+      postLink = await getPostLink(page, (content || '').split('\n')[0].trim(), onLog);
+    }
+
+    return { success: true, url: groupUrl, postLink };
   } catch (err) {
     onLog(`✗ Lỗi tại ${groupUrl}: ${err.message}`);
     return { success: false, url: groupUrl, error: err.message };
@@ -144,7 +328,7 @@ async function postToGroup(page, groupUrl, content, onLog) {
 }
 
 async function runPostTask(task, onLog, onNeedLogin) {
-  const { groups, content, delayMin = 15, delayMax = 45 } = task.payload;
+  const { groups, content, images, productLink, comment, delayMin = 15, delayMax = 45 } = task.payload;
   const results = [];
 
   let ctx, page;
@@ -154,10 +338,25 @@ async function runPostTask(task, onLog, onNeedLogin) {
     return { error: 'Không thể đăng nhập Facebook: ' + err.message, results: [] };
   }
 
+  // Download ảnh từ VPS một lần, dùng lại cho tất cả nhóm
+  // _serverUrl được inject bởi agent.js trước khi gọi runPostTask
+  const serverUrl   = task._serverUrl || '';
+  const imagePaths  = serverUrl && images?.length
+    ? await downloadImages(images, serverUrl, onLog)
+    : [];
+
   for (let i = 0; i < groups.length; i++) {
     const g      = groups[i];
-    const result = await postToGroup(page, g.url || g, content, onLog);
+    const result = await postToGroup(page, g.url || g, content, imagePaths, onLog);
     results.push(result);
+
+    // Comment sau khi đăng (thay {link bài viết} bằng link thực)
+    if (result.success && comment) {
+      const postHeadline = (content || '').split('\n')[0].trim();
+      const commentText  = comment.replace('{link bài viết}', result.postLink || productLink || '');
+      onLog('  Đang viết comment...');
+      await commentOnPost(page, commentText, postHeadline, onLog);
+    }
 
     if (i < groups.length - 1) {
       const delaySec = Math.floor(Math.random() * (delayMax - delayMin + 1) + delayMin);

@@ -122,6 +122,7 @@ async function pollAndExecute() {
         } else if (task.type === 'post_groups') {
           const { runPostTask } = require('./facebook');
           const onNeedLogin = () => setStatus({ needLogin: true });
+          task._serverUrl = settings.serverUrl; // inject để facebook.js download ảnh
           result = await runPostTask(task, onLog, onNeedLogin);
 
         } else if (task.type === 'fetch_groups') {
