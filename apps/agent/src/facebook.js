@@ -236,17 +236,18 @@ async function postToGroup(page, groupUrl, content, imagePaths, onLog) {
     const dialog = page.getByRole('dialog').last();
     await dialog.waitFor({ state: 'visible', timeout: 15000 });
 
-    // Upload ảnh trước khi nhập text (Facebook xử lý tốt hơn theo thứ tự này)
+    // Upload ảnh: click icon Ảnh/video để trigger file chooser (locale vi-VN → label cố định)
     if (imagePaths && imagePaths.length > 0) {
       onLog(`  Gắn ${imagePaths.length} ảnh...`);
-      // input[type="file"][multiple] có sẵn trong DOM dialog (ẩn nhưng functional)
-      // Không cần click nút ảnh — setInputFiles trực tiếp
-      const fileInput = dialog.locator('input[type="file"][multiple]');
       try {
-        await fileInput.first().setInputFiles(imagePaths);
+        const [fileChooser] = await Promise.all([
+          page.waitForEvent('filechooser', { timeout: 15000 }),
+          dialog.locator('[aria-label="Ảnh/video"]').click(),
+        ]);
+        await fileChooser.setFiles(imagePaths);
         onLog('  Chờ ảnh tải xong...');
         await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {});
-        await page.waitForTimeout(3000);
+        await page.waitForTimeout(2000);
       } catch (e) {
         onLog(`  Upload ảnh thất bại: ${e.message}`);
       }
@@ -279,29 +280,30 @@ async function postToGroup(page, groupUrl, content, imagePaths, onLog) {
     };
     page.on('response', responseHandler);
 
-    // Chờ nút Đăng hết disabled (aria-disabled="true" → false sau khi có content)
+    // Chờ nút Đăng hết disabled (aria-disabled="true" → false khi có content/ảnh)
     await page.waitForFunction(() => {
       const d = document.querySelector('[role="dialog"]');
       if (!d) return false;
       return Array.from(d.querySelectorAll('[role="button"]'))
-        .some(b => b.tabIndex === 0 && b.getAttribute('aria-disabled') !== 'true' && !b.getAttribute('aria-label'));
+        .some(b => b.textContent.trim() === 'Đăng' && b.getAttribute('aria-disabled') !== 'true');
     }, { timeout: 15000 }).catch(() => {});
 
     try {
-      // Click nút Đăng bằng evaluate (cấu trúc: button không aria-disabled, không aria-label, có tabindex=0)
+      // Click nút Đăng bằng textContent (text tĩnh, locale vi-VN cố định)
       await page.evaluate(() => {
         const d = document.querySelector('[role="dialog"]');
         if (!d) return;
         const btns = Array.from(d.querySelectorAll('[role="button"]'));
-        // Đăng button: tabIndex=0, không aria-label (X có aria-label), không aria-disabled
-        for (let i = btns.length - 1; i >= 0; i--) {
-          const b = btns[i];
-          if (b.tabIndex === 0 && !b.getAttribute('aria-label') && b.getAttribute('aria-disabled') !== 'true') {
-            b.click(); return;
-          }
-        }
+        const postBtn = btns.find(b =>
+          b.textContent.trim() === 'Đăng' && b.getAttribute('aria-disabled') !== 'true'
+        );
+        if (postBtn) postBtn.click();
       });
-      await dialog.waitFor({ state: 'hidden', timeout: 30000 });
+      // Chờ dialog "Tạo bài viết" đóng (không dùng .last() tránh match dialog khác)
+      await page.waitForFunction(() => {
+        return !Array.from(document.querySelectorAll('[role="dialog"]'))
+          .some(d => d.getAttribute('aria-label') === 'Tạo bài viết');
+      }, { timeout: 30000 });
       await page.waitForTimeout(2000);
     } finally {
       page.off('response', responseHandler);
