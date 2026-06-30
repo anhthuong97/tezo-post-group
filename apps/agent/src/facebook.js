@@ -7,7 +7,7 @@ const SESSION_PATH = path.join(app.getPath('userData'), 'fb-session.json');
 const CHROME_UA    = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 const VIEWPORT     = { width: 1280, height: 800 };
 
-let browser      = null;
+let browser       = null;
 let playwrightCtx = null; // isolated context riêng — KHÔNG dùng Electron default context
 
 async function ensureBrowser() {
@@ -16,13 +16,45 @@ async function ensureBrowser() {
   return browser;
 }
 
-// Luôn tạo/dùng lại một isolated Playwright context riêng biệt.
-// Không dùng contexts()[0] vì đó là Electron default context (chứa cả fbWindow).
+// Sync cookies từ fbWindow (Electron session) → SESSION_PATH để Playwright dùng.
+// Gọi trước khi tạo Playwright context mới, đảm bảo session luôn fresh.
+async function syncSessionFromFbWindow() {
+  try {
+    const { app, session } = require('electron');
+    const fbWin = app.getFbWindow?.();
+    if (!fbWin || fbWin.isDestroyed()) return;
+    const url = fbWin.webContents.getURL();
+    if (!url.includes('facebook.com') || isLoggedOut(url)) return;
+
+    const cookies = await session.defaultSession.cookies.get({ domain: '.facebook.com' });
+    if (!cookies.length) return;
+
+    const state = {
+      cookies: cookies.map(c => ({
+        name:     c.name,
+        value:    c.value,
+        domain:   c.domain.startsWith('.') ? c.domain : `.${c.domain}`,
+        path:     c.path  || '/',
+        expires:  c.expirationDate ?? -1,
+        httpOnly: c.httpOnly || false,
+        secure:   c.secure   || false,
+        sameSite: c.sameSite === 'strict' ? 'Strict' : c.sameSite === 'lax' ? 'Lax' : 'None',
+      })),
+      origins: [],
+    };
+    fs.writeFileSync(SESSION_PATH, JSON.stringify(state));
+  } catch {}
+}
+
+// Tạo/dùng lại Playwright isolated context.
+// Sync session từ fbWindow trước khi tạo context mới.
 async function getOrCreateContext() {
   const b = await ensureBrowser();
 
-  // Nếu context cũ vẫn còn sống thì dùng lại
   if (playwrightCtx && !playwrightCtx.isDisposed()) return playwrightCtx;
+
+  // Lấy session mới nhất từ fbWindow (nếu đang mở) trước khi tạo context
+  await syncSessionFromFbWindow();
 
   const opts = {
     userAgent: CHROME_UA,
@@ -39,19 +71,32 @@ function isLoggedOut(url) {
 }
 
 async function ensureLoggedIn(onNeedLogin) {
-  const ctx  = await getOrCreateContext();
-  const pages = ctx.pages();
-  const page  = pages.length > 0 ? pages[0] : await ctx.newPage();
+  let ctx   = await getOrCreateContext();
+  let pages = ctx.pages();
+  let page  = pages.length > 0 ? pages[0] : await ctx.newPage();
 
   await page.goto('https://www.facebook.com', { waitUntil: 'domcontentloaded', timeout: 30000 });
 
   if (isLoggedOut(page.url())) {
-    onNeedLogin(page);
-    await page.waitForFunction(
-      () => !window.location.href.includes('/login') && !window.location.href.includes('/checkpoint'),
-      { timeout: 5 * 60 * 1000 }
-    );
-    await ctx.storageState({ path: SESSION_PATH });
+    // Session hết hạn — thử sync lại từ fbWindow và tạo context mới
+    await syncSessionFromFbWindow();
+    if (fs.existsSync(SESSION_PATH)) {
+      try { await ctx.close(); } catch {}
+      playwrightCtx = null;
+      ctx   = await getOrCreateContext();
+      pages = ctx.pages();
+      page  = pages.length > 0 ? pages[0] : await ctx.newPage();
+      await page.goto('https://www.facebook.com', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    }
+
+    if (isLoggedOut(page.url())) {
+      onNeedLogin(page);
+      await page.waitForFunction(
+        () => !window.location.href.includes('/login') && !window.location.href.includes('/checkpoint'),
+        { timeout: 5 * 60 * 1000 }
+      );
+      await ctx.storageState({ path: SESSION_PATH });
+    }
   }
   return { ctx, page };
 }
@@ -434,12 +479,12 @@ async function loginFacebook(onLog, onShowBrowser, onHideBrowser, doLogin) {
 }
 
 // Playwright equivalent của navigateFbWin — chạy ngầm, không mở fbWindow.
-// Trả về Playwright page với shim executeJavaScript + sendInputEvent để
-// các hàm bên dưới không cần đổi logic.
+// Lấy/tạo Playwright page rồi navigate tới URL, trả về page với shim
+// executeJavaScript + sendInputEvent để code gốc không cần sửa.
 async function navigatePW(url, onLog) {
-  const { page } = await ensureLoggedIn(() => {
-    throw new Error('Chưa đăng nhập Facebook. Hãy đăng nhập trong Browser trước.');
-  });
+  const ctx   = await getOrCreateContext();
+  const pages = ctx.pages();
+  const page  = pages.length > 0 ? pages[0] : await ctx.newPage();
 
   await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
   await page.waitForTimeout(2000);
@@ -449,7 +494,6 @@ async function navigatePW(url, onLog) {
     page.executeJavaScript = (script) => page.evaluate(script);
   }
   // Shim: page.sendInputEvent({ type, x, y }) → page.mouse.click(x, y)
-  // mouseDown lưu tọa độ, mouseUp thực hiện click thật
   if (!page.sendInputEvent) {
     page._pwMousePending = null;
     page.sendInputEvent = (evt) => {
