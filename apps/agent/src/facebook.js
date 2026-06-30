@@ -239,40 +239,14 @@ async function postToGroup(page, groupUrl, content, imagePaths, onLog) {
     // Upload ảnh trước khi nhập text (Facebook xử lý tốt hơn theo thứ tự này)
     if (imagePaths && imagePaths.length > 0) {
       onLog(`  Gắn ${imagePaths.length} ảnh...`);
+      // input[type="file"][multiple] có sẵn trong DOM dialog (ẩn nhưng functional)
+      // Không cần click nút ảnh — setInputFiles trực tiếp
+      const fileInput = dialog.locator('input[type="file"][multiple]');
       try {
-        // Thử click từng nút trong dialog, chờ file chooser xuất hiện
-        let fileChooser = null;
-        const btnCandidates = [
-          // input[type=file] ẩn — Playwright setInputFiles không cần click
-          () => dialog.locator('input[type="file"]').first(),
-          // Các nút trong toolbar đính kèm (theo cấu trúc DOM, không dùng label)
-          () => dialog.locator('[role="button"]').nth(1),
-          () => dialog.locator('[role="button"]').nth(2),
-          () => dialog.locator('[role="button"]').nth(0),
-        ];
-        for (const getBtn of btnCandidates) {
-          try {
-            const btn = getBtn();
-            const tag = await btn.evaluate((el) => el.tagName.toLowerCase()).catch(() => '');
-            if (tag === 'input') {
-              await btn.setInputFiles(imagePaths);
-              fileChooser = { setFiles: () => {} }; // already set
-              break;
-            }
-            const [fc] = await Promise.all([
-              page.waitForEvent('filechooser', { timeout: 5000 }),
-              btn.click(),
-            ]);
-            fileChooser = fc;
-            break;
-          } catch {}
-        }
-        if (fileChooser && typeof fileChooser.setFiles === 'function') {
-          await fileChooser.setFiles(imagePaths);
-        }
+        await fileInput.first().setInputFiles(imagePaths);
         onLog('  Chờ ảnh tải xong...');
         await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {});
-        await page.waitForTimeout(2000);
+        await page.waitForTimeout(3000);
       } catch (e) {
         onLog(`  Upload ảnh thất bại: ${e.message}`);
       }
@@ -281,8 +255,13 @@ async function postToGroup(page, groupUrl, content, imagePaths, onLog) {
     if (content) {
       const textbox = page.getByRole('textbox').last();
       await textbox.click();
-      await page.keyboard.type(content, { delay: 30 + Math.floor(Math.random() * 40) });
-      await page.waitForTimeout(1000);
+      await page.waitForTimeout(300);
+      // Gõ 10 ký tự đầu từng chữ để kích hoạt React editor, sau đó type phần còn lại
+      const head = content.slice(0, Math.min(10, content.length));
+      const tail  = content.slice(head.length);
+      await page.keyboard.type(head, { delay: 80 });
+      if (tail) await page.keyboard.type(tail, { delay: 20 });
+      await page.waitForTimeout(800);
     }
 
     // Intercept GraphQL để lấy post ID trước khi click đăng
@@ -300,10 +279,28 @@ async function postToGroup(page, groupUrl, content, imagePaths, onLog) {
     };
     page.on('response', responseHandler);
 
-    const postBtn = page.getByRole('button', { name: /^đăng$|^post$/i }).last();
-    await postBtn.waitFor({ state: 'visible', timeout: 15000 });
+    // Chờ nút Đăng hết disabled (aria-disabled="true" → false sau khi có content)
+    await page.waitForFunction(() => {
+      const d = document.querySelector('[role="dialog"]');
+      if (!d) return false;
+      return Array.from(d.querySelectorAll('[role="button"]'))
+        .some(b => b.tabIndex === 0 && b.getAttribute('aria-disabled') !== 'true' && !b.getAttribute('aria-label'));
+    }, { timeout: 15000 }).catch(() => {});
+
     try {
-      await postBtn.click();
+      // Click nút Đăng bằng evaluate (cấu trúc: button không aria-disabled, không aria-label, có tabindex=0)
+      await page.evaluate(() => {
+        const d = document.querySelector('[role="dialog"]');
+        if (!d) return;
+        const btns = Array.from(d.querySelectorAll('[role="button"]'));
+        // Đăng button: tabIndex=0, không aria-label (X có aria-label), không aria-disabled
+        for (let i = btns.length - 1; i >= 0; i--) {
+          const b = btns[i];
+          if (b.tabIndex === 0 && !b.getAttribute('aria-label') && b.getAttribute('aria-disabled') !== 'true') {
+            b.click(); return;
+          }
+        }
+      });
       await dialog.waitFor({ state: 'hidden', timeout: 30000 });
       await page.waitForTimeout(2000);
     } finally {
