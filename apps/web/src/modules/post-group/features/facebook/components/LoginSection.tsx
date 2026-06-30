@@ -92,9 +92,21 @@ export function LoginSection({
     setSyncingIdents(true);
     try {
       const res = await dispatch('sync_identities');
-      showAction(res?.success
-        ? 'Đang tải lại tư cách... (mất ~10-20 giây)'
-        : (res?.error || 'Agent chưa kết nối.'));
+      if (!res?.success) {
+        showAction(res?.error || 'Agent chưa kết nối.');
+        return;
+      }
+      // Giữ lock cho đến khi identities cập nhật (tối đa 30s)
+      const snapshot = identities.map(i => i.id).sort().join(',');
+      const deadline = Date.now() + 30_000;
+      while (Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 2000));
+        try {
+          const fresh: any = await api.get(ENDPOINTS.agent.identities);
+          const newSnap = (fresh?.identities || []).map((i: any) => i.id).sort().join(',');
+          if (newSnap && newSnap !== snapshot) break;
+        } catch {}
+      }
     } catch (e: any) {
       showAction(e.message || 'Lỗi');
     } finally {
@@ -196,11 +208,11 @@ export function LoginSection({
                   Đang chuyển tư cách...
                 </div>
               ) : syncingIdentities ? (
-                <div className="w-full flex items-center gap-2 px-3 py-2 text-xs text-gray-400
-                                bg-gray-50 border border-gray-200 rounded-lg
+                <div className="w-full flex items-center gap-2 px-3 py-2 text-xs text-blue-500
+                                bg-blue-50 border border-blue-200 rounded-lg
                                 pointer-events-none select-none">
                   <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />
-                  Đang tải lại tư cách...
+                  Đang tải tư cách...
                 </div>
               ) : (
                 <>
