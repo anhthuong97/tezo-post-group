@@ -384,7 +384,8 @@ async function runPostTask(task, onLog, onNeedLogin) {
 
 function clearSession() {
   if (fs.existsSync(SESSION_PATH)) fs.unlinkSync(SESSION_PATH);
-  browser = null;
+  playwrightCtx = null;
+  browser       = null;
 }
 
 // Huỷ isolated context + disconnect Playwright — lần connect tiếp sẽ load session mới
@@ -432,19 +433,37 @@ async function loginFacebook(onLog, onShowBrowser, onHideBrowser, doLogin) {
   }
 }
 
-// Helper: điều hướng fbWindow và trả về webContents (không dùng hidden window)
-async function navigateFbWin(url, onLog) {
-  const { app } = require('electron');
-  let win = app.getFbWindow?.();
-  if (!win || win.isDestroyed()) throw new Error('Hãy mở Browser trước khi thực hiện thao tác này.');
-  await new Promise((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error('Navigation timeout: ' + url)), 30000);
-    win.webContents.once('did-finish-load', () => { clearTimeout(t); resolve(); });
-    win.webContents.loadURL(url);
+// Playwright equivalent của navigateFbWin — chạy ngầm, không mở fbWindow.
+// Trả về Playwright page với shim executeJavaScript + sendInputEvent để
+// các hàm bên dưới không cần đổi logic.
+async function navigatePW(url, onLog) {
+  const { page } = await ensureLoggedIn(() => {
+    throw new Error('Chưa đăng nhập Facebook. Hãy đăng nhập trong Browser trước.');
   });
-  // Chờ JS chạy xong
-  await new Promise(r => setTimeout(r, 2000));
-  return win.webContents;
+
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+  await page.waitForTimeout(2000);
+
+  // Shim: page.executeJavaScript(str) → page.evaluate(str)
+  if (!page.executeJavaScript) {
+    page.executeJavaScript = (script) => page.evaluate(script);
+  }
+  // Shim: page.sendInputEvent({ type, x, y }) → page.mouse.click(x, y)
+  // mouseDown lưu tọa độ, mouseUp thực hiện click thật
+  if (!page.sendInputEvent) {
+    page._pwMousePending = null;
+    page.sendInputEvent = (evt) => {
+      if (evt.type === 'mouseDown') {
+        page._pwMousePending = { x: evt.x, y: evt.y };
+      } else if (evt.type === 'mouseUp' && page._pwMousePending) {
+        const { x, y } = page._pwMousePending;
+        page._pwMousePending = null;
+        page.mouse.click(x, y).catch(() => {});
+      }
+    };
+  }
+
+  return page;
 }
 
 // ─── Helpers cho identity switcher (port từ master cũ) ───────────────────────
@@ -593,13 +612,8 @@ async function getIdentities(onLog) {
   onLog?.('[v7] getIdentities start');
   onLog?.('Đang lấy danh sách tư cách...');
   try {
-    const { app } = require('electron');
-    const fbWin = app.getFbWindow?.();
-    if (!fbWin || fbWin.isDestroyed()) throw new Error('Hãy mở Browser trước khi lấy danh sách tư cách.');
-    if (isLoggedOut(fbWin.webContents.getURL())) { onLog?.('Chưa đăng nhập Facebook.'); return []; }
-
     const scrapePages = async () => {
-      const wc = await navigateFbWin(
+      const wc = await navigatePW(
         'https://www.facebook.com/pages/?category=your_pages&ref=bookmarks', onLog
       );
       for (let i = 0; i < 20; i++) {
@@ -665,7 +679,7 @@ async function getIdentities(onLog) {
     //     └── [role="listitem"] + a[href]                        ← menu items (MBS, Cài đặt...)
     // → Phân biệt identity vs menu: listitem CÓ [role="button"] mà KHÔNG CÓ a[href]
     onLog?.('[Step2] navigate home + mở dropdown...');
-    const wcHome = await navigateFbWin('https://www.facebook.com/', onLog);
+    const wcHome = await navigatePW('https://www.facebook.com/', onLog);
 
     let avatarReady = false;
     for (let i = 0; i < 16; i++) {
@@ -844,7 +858,7 @@ async function getIdentities(onLog) {
 async function fetchGroupsForIdentity(identityId, identityHref, onLog) {
   onLog?.(`Đang tải nhóm...`);
   try {
-    const wc = await navigateFbWin('https://www.facebook.com/groups/joins/', onLog);
+    const wc = await navigatePW('https://www.facebook.com/groups/joins/', onLog);
     await new Promise(r => setTimeout(r, 1500));
 
     // Scroll đến khi không có item mới (tối đa 10 lần) — giống master cũ
@@ -906,7 +920,7 @@ async function fetchGroupsForIdentity(identityId, identityHref, onLog) {
 // Mở dropdown → kiểm tra nếu đã personal thì thoát sớm → click listitem đầu tiên có avatar
 
 async function switchToPersonal(personalName, currentIdentityId, onLog) {
-  const wc = await navigateFbWin('https://www.facebook.com/', onLog);
+  const wc = await navigatePW('https://www.facebook.com/', onLog);
   await new Promise(r => setTimeout(r, 1500));
 
   let existingLabels;
@@ -973,7 +987,7 @@ async function switchIdentityOnBrowser(identityId, identityName, identityHref, p
   const cleanHref = (identityHref || '').startsWith('/') ? identityHref : '/' + identityHref;
   const pageUrl   = `https://www.facebook.com${cleanHref}`;
   onLog?.(`Mở trang: ${pageUrl}`);
-  const wc = await navigateFbWin(pageUrl, onLog);
+  const wc = await navigatePW(pageUrl, onLog);
   await new Promise(r => setTimeout(r, 2000));
 
   // 3. Ghi nhận dialogs trước khi click
@@ -1037,7 +1051,7 @@ async function switchIdentityOnBrowser(identityId, identityName, identityHref, p
   onLog?.(`Đã chuyển sang: ${identityName}`);
 
   // Về trang chủ sau khi chuyển (giống master cũ)
-  navigateFbWin('https://www.facebook.com/', onLog).catch(() => {});
+  navigatePW('https://www.facebook.com/', onLog).catch(() => {});
 
   return { ok: true };
 }
