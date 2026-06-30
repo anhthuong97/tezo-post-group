@@ -1,5 +1,4 @@
 'use client';
-import { useState } from 'react';
 import { Button } from '@/shared/components/Button';
 import type { Group } from '../types/group.types';
 
@@ -24,14 +23,6 @@ export function GroupList({
   onLoad, loading, error,
   disabled, disabledMsg,
 }: GroupListProps) {
-  const [copiedUrl, setCopiedUrl] = useState<string | null>(null);
-
-  const copyLink = (url: string) => {
-    navigator.clipboard.writeText(url);
-    setCopiedUrl(url);
-    setTimeout(() => setCopiedUrl(null), 2000);
-  };
-
   const filtered = search
     ? groups.filter((g) => g.name.toLowerCase().includes(search.toLowerCase()))
     : groups;
@@ -79,12 +70,17 @@ export function GroupList({
                   className="accent-blue-500 shrink-0"
                 />
                 <span className="text-sm text-gray-700 flex-1 leading-tight truncate">{g.name}</span>
-                <button
-                  onClick={(e) => { e.stopPropagation(); copyLink(g.url); }}
-                  className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-500 text-xs px-1.5 py-0.5 rounded transition-all shrink-0 min-w-[70px] text-center"
-                >
-                  {copiedUrl === g.url ? '✓ Đã sao chép' : 'Sao chép link'}
-                </button>
+                {g.url && (
+                  <a
+                    href={g.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-500 text-xs px-1.5 py-0.5 rounded transition-all shrink-0"
+                  >
+                    Mở xem
+                  </a>
+                )}
               </div>
             ))}
           </div>

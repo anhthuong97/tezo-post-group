@@ -7,7 +7,8 @@ const SESSION_PATH = path.join(app.getPath('userData'), 'fb-session.json');
 const CHROME_UA    = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 const VIEWPORT     = { width: 1280, height: 800 };
 
-let browser = null;
+let browser      = null;
+let playwrightCtx = null; // isolated context riêng — KHÔNG dùng Electron default context
 
 async function ensureBrowser() {
   if (browser && browser.isConnected()) return browser;
@@ -15,25 +16,22 @@ async function ensureBrowser() {
   return browser;
 }
 
+// Luôn tạo/dùng lại một isolated Playwright context riêng biệt.
+// Không dùng contexts()[0] vì đó là Electron default context (chứa cả fbWindow).
 async function getOrCreateContext() {
-  const b        = await ensureBrowser();
-  const contexts = b.contexts();
-  if (contexts.length > 0) {
-    const ctx = contexts[0];
-    // Đảm bảo các page hiện có dùng đúng viewport + UA
-    for (const page of ctx.pages()) {
-      await page.setViewportSize(VIEWPORT).catch(() => {});
-      await page.setExtraHTTPHeaders({ 'User-Agent': CHROME_UA }).catch(() => {});
-    }
-    return ctx;
-  }
+  const b = await ensureBrowser();
+
+  // Nếu context cũ vẫn còn sống thì dùng lại
+  if (playwrightCtx && !playwrightCtx.isDisposed()) return playwrightCtx;
+
   const opts = {
     userAgent: CHROME_UA,
     viewport:  VIEWPORT,
     locale:    'vi-VN',
     ...(fs.existsSync(SESSION_PATH) ? { storageState: SESSION_PATH } : {}),
   };
-  return b.newContext(opts);
+  playwrightCtx = await b.newContext(opts);
+  return playwrightCtx;
 }
 
 function isLoggedOut(url) {
@@ -389,8 +387,12 @@ function clearSession() {
   browser = null;
 }
 
-// Disconnect Playwright khỏi CDP — lần connect tiếp sẽ load session mới
+// Huỷ isolated context + disconnect Playwright — lần connect tiếp sẽ load session mới
 async function resetContext() {
+  if (playwrightCtx) {
+    try { await playwrightCtx.close(); } catch {}
+    playwrightCtx = null;
+  }
   if (browser) {
     try { browser.disconnect(); } catch {}
     browser = null;
@@ -434,10 +436,7 @@ async function loginFacebook(onLog, onShowBrowser, onHideBrowser, doLogin) {
 async function navigateFbWin(url, onLog) {
   const { app } = require('electron');
   let win = app.getFbWindow?.();
-  if (!win || win.isDestroyed()) {
-    win = app.ensureFbWindow?.();
-    if (!win) throw new Error('Không thể mở browser.');
-  }
+  if (!win || win.isDestroyed()) throw new Error('Hãy mở Browser trước khi thực hiện thao tác này.');
   await new Promise((resolve, reject) => {
     const t = setTimeout(() => reject(new Error('Navigation timeout: ' + url)), 30000);
     win.webContents.once('did-finish-load', () => { clearTimeout(t); resolve(); });
@@ -595,8 +594,8 @@ async function getIdentities(onLog) {
   onLog?.('Đang lấy danh sách tư cách...');
   try {
     const { app } = require('electron');
-    const fbWin = app.ensureFbWindow?.() || app.getFbWindow?.();
-    if (!fbWin || fbWin.isDestroyed()) throw new Error('Không thể mở browser.');
+    const fbWin = app.getFbWindow?.();
+    if (!fbWin || fbWin.isDestroyed()) throw new Error('Hãy mở Browser trước khi lấy danh sách tư cách.');
     if (isLoggedOut(fbWin.webContents.getURL())) { onLog?.('Chưa đăng nhập Facebook.'); return []; }
 
     const scrapePages = async () => {
