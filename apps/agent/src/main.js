@@ -268,6 +268,9 @@ app.whenReady().then(async () => {
   tray.setContextMenu(buildTrayMenu());
   tray.on('double-click', openPopup);
 
+  // Auto-mở fbWindow khi agent khởi động
+  createFbWindow();
+
   const s = getSettings();
   if (s.serverUrl && s.username && s.password && s.autoStart) {
     agent.start(s, (status) => {
