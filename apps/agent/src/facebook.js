@@ -6,7 +6,7 @@ const { app } = require('electron');
 const SESSION_PATH = path.join(app.getPath('userData'), 'fb-session.json');
 
 let browser       = null;
-let playwrightPage = null; // automation page dùng chung — ẩn, không phải fbWindow
+let playwrightPage = null;
 
 async function ensureBrowser() {
   if (browser && browser.isConnected()) return browser;
@@ -14,27 +14,36 @@ async function ensureBrowser() {
   return browser;
 }
 
-// connectOverCDP không cho phép tạo context mới (Target.createBrowserContext fails).
-// Dùng context mặc định của Electron (contexts()[0]) để tạo page mới.
-// Page này chia sẻ session/cookie với fbWindow → tự động đã login nếu fbWindow đã login.
+// connectOverCDP giới hạn: KHÔNG tạo được context mới (Target.createBrowserContext fails),
+// KHÔNG tạo được page mới (ctx.newPage() treo vì không có render process).
+// Giải pháp: dùng page có sẵn của hidden BrowserWindow — đây là page thật, có render process,
+// chia sẻ session Electron nên tự động đã login nếu fbWindow đã login.
 async function getOrCreatePage(onLog) {
-  onLog?.('[PW] ensureBrowser...');
   const b = await ensureBrowser();
   onLog?.('[PW] connected=' + b.isConnected());
 
   if (playwrightPage && !playwrightPage.isClosed()) {
-    onLog?.('[PW] Dùng lại page hiện có');
+    onLog?.('[PW] Dùng lại page: ' + playwrightPage.url());
     return playwrightPage;
   }
 
-  const contexts = b.contexts();
-  onLog?.('[PW] contexts: ' + contexts.length);
-  if (!contexts.length) throw new Error('Không có browser context — hãy mở browser trước');
+  // Chờ đến khi có page trong context (tối đa 10s)
+  const ctx = b.contexts()[0];
+  let allPages = [];
+  for (let i = 0; i < 20; i++) {
+    allPages = ctx.pages();
+    if (allPages.length > 0) break;
+    onLog?.('[PW] Chờ page... ' + i);
+    await new Promise(r => setTimeout(r, 500));
+  }
+  onLog?.('[PW] pages: ' + allPages.length + ' → ' + allPages.map(p => p.url()).join(' | '));
+  if (!allPages.length) throw new Error('Không có page trong browser. Hãy mở browser trước.');
 
-  const ctx = contexts[0]; // Electron default context, đã có session FB
-  onLog?.('[PW] Tạo page mới trong Electron context...');
-  playwrightPage = await ctx.newPage();
-  onLog?.('[PW] page mới OK');
+  // Ưu tiên page không phải facebook.com (hidden window: about:blank hoặc URL khác)
+  // Tránh dùng fbWindow để không làm gián đoạn giao diện user đang thấy.
+  const nonFbPage = allPages.find(p => !p.url().includes('facebook.com'));
+  playwrightPage  = nonFbPage || allPages[0];
+  onLog?.('[PW] Chọn page: ' + playwrightPage.url());
   return playwrightPage;
 }
 
@@ -50,15 +59,15 @@ async function ensureLoggedIn(onNeedLogin, onLog) {
   onLog?.('[PW] URL: ' + page.url());
 
   if (isLoggedOut(page.url())) {
-    onLog?.('[PW] Chưa login FB — yêu cầu đăng nhập thủ công');
+    onLog?.('[PW] Chưa login — yêu cầu đăng nhập thủ công');
     onNeedLogin(page);
     await page.waitForFunction(
       () => !window.location.href.includes('/login') && !window.location.href.includes('/checkpoint'),
       { timeout: 5 * 60 * 1000 }
     );
-    onLog?.('[PW] Đăng nhập thành công');
+    onLog?.('[PW] Đăng nhập xong');
   } else {
-    onLog?.('[PW] Đã login FB OK');
+    onLog?.('[PW] Đã login OK');
   }
   return { ctx: null, page };
 }

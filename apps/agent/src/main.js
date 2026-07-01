@@ -141,13 +141,13 @@ function broadcastBrowserStatus() {
   }
 }
 
-app.showBrowser   = showBrowser;
-app.hideBrowser   = hideBrowser;
-app.doLogin       = doLogin;
-app.getFbWindow   = () => (fbWindow && !fbWindow.isDestroyed() ? fbWindow : null);
+app.showBrowser    = showBrowser;
+app.hideBrowser    = hideBrowser;
+app.doLogin        = doLogin;
+app.getFbWindow    = () => (fbWindow && !fbWindow.isDestroyed() ? fbWindow : null);
 app.createFbWindow = createFbWindow;
-// Auto-create fbWindow if not open (used by facebook.js tasks that need the browser)
 app.ensureFbWindow = () => createFbWindow();
+app.getHiddenWindow = () => (hidden && !hidden.isDestroyed() ? hidden : null);
 
 // ─── IPC handlers ─────────────────────────────────────────────────────────
 
