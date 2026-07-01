@@ -256,11 +256,15 @@ async function postToGroup(page, groupUrl, content, imagePaths, onLog, onStep) {
       step(groupUrl, 'uploading', 'Đang tải ảnh lên...');
       onLog(`  Gắn ${imagePaths.length} ảnh...`);
       try {
-        const [fileChooser] = await Promise.all([
-          page.waitForEvent('filechooser', { timeout: 15000 }),
-          dialog.locator('[aria-label="Ảnh/video"]').click(),
-        ]);
-        await fileChooser.setFiles(imagePaths);
+        // waitForEvent('filechooser') không hoạt động trong Electron CDP mode.
+        // Thay bằng: click nút → tìm input[type=file] → setInputFiles (qua CDP, không cần OS dialog).
+        await dialog.locator('[aria-label="Ảnh/video"]').click();
+        await page.waitForTimeout(600);
+
+        const fileInput = page.locator('input[type="file"]').first();
+        await fileInput.waitFor({ state: 'attached', timeout: 10000 });
+        await fileInput.setInputFiles(imagePaths);
+
         onLog('  Chờ ảnh tải xong...');
         await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {});
         await page.waitForTimeout(2000);
