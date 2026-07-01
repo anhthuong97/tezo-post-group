@@ -87,6 +87,19 @@ async function pollAndExecute() {
       setStatus({ currentTask: { id: task.id, type: task.type } });
       const logs = [];
 
+      // Task dùng Playwright: hiện hidden window để user theo dõi tiến trình
+      const PLAYWRIGHT_TASKS = new Set(['sync_identities', 'fetch_groups', 'post_groups', 'switch_identity']);
+      if (PLAYWRIGHT_TASKS.has(task.type)) {
+        try {
+          const { app } = require('electron');
+          const hw = app.getHiddenWindow?.();
+          if (hw && !hw.isDestroyed()) {
+            hw.setTitle('TeZo — Automation Browser');
+            hw.show();
+          }
+        } catch {}
+      }
+
       const onLog = async (msg) => {
         logs.push(msg);
         setStatus({ currentTask: { id: task.id, type: task.type, lastLog: msg } });
@@ -204,6 +217,12 @@ async function pollAndExecute() {
       } finally {
         running = false;
         setStatus({ currentTask: null, needLogin: false });
+        // Ẩn automation window sau khi task xong
+        try {
+          const { app } = require('electron');
+          const hw = app.getHiddenWindow?.();
+          if (hw && !hw.isDestroyed()) hw.hide();
+        } catch {}
       }
     }
   } catch (err) {

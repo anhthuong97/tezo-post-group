@@ -251,15 +251,17 @@ function openPopup() {
 // ─── App lifecycle ─────────────────────────────────────────────────────────
 
 app.whenReady().then(async () => {
-  // Hidden window: giữ Chromium/CDP sống — user KHÔNG bao giờ thấy
+  // Automation window: giữ CDP sống + dùng để chạy Playwright task (show khi có task)
   hidden = new BrowserWindow({
     show: false,
-    width: 1280,
+    width: 1366,
     height: 900,
-    title: '_tezo_hidden',
+    title: 'TeZo — Automation Browser',
+    autoHideMenuBar: true,
     webPreferences: { nodeIntegration: false, contextIsolation: false },
   });
   hidden.loadURL('about:blank');
+  hidden.on('close', (e) => { e.preventDefault(); hidden.hide(); }); // Không cho đóng, chỉ ẩn
 
   const iconPath = path.join(__dirname, '../assets/icon.png');
   const icon = nativeImage.createFromPath(iconPath);
